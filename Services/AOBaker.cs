@@ -15,6 +15,7 @@ namespace DennokoWorks.Tool.AOBaker
 
         public async Task<RenderTexture> ComputeAOAsync(
             BakeContext context,
+            OcclusionGeometry occlusionGeometry,
             AOSettings settings,
             IProgress<(float progress, string message)> progress)
         {
@@ -54,30 +55,21 @@ namespace DennokoWorks.Tool.AOBaker
             aoShader.Dispatch(rasterKernel, threadGroupsXY, threadGroupsXY, 1);
             AsyncGPUReadback.WaitAllRequests();
 
-            // --- Pass 2: Build BVH ---
-            progress?.Report((0.12f, "Building BVH..."));
+            // --- Pass 2: Bind occlusion geometry and BVH ---
+            progress?.Report((0.12f, "Binding occlusion geometry..."));
             await Task.Yield();
 
-            var vertices = context.SourceMesh.vertices;
-            var indices  = context.SourceMesh.triangles;
-            var (bvhNodes, primIndices) = BVHBuilder.Build(vertices, indices);
-
-            // BVHNodeGPU stride = 32 bytes (Vector3 + int + Vector3 + int)
-            var bvhNodeBuf   = new ComputeBuffer(bvhNodes.Length,    32);
-            var primIndexBuf = new ComputeBuffer(primIndices.Length,  sizeof(int));
-            bvhNodeBuf.SetData(bvhNodes);
-            primIndexBuf.SetData(primIndices);
+            aoShader.SetBuffer(aoKernel, "_OccVertices",  occlusionGeometry.VertexBuffer);
+            aoShader.SetBuffer(aoKernel, "_OccIndices",   occlusionGeometry.IndexBuffer);
+            aoShader.SetBuffer(aoKernel, "_BVHNodes",     occlusionGeometry.BVHNodeBuffer);
+            aoShader.SetBuffer(aoKernel, "_PrimIndices",  occlusionGeometry.PrimIndexBuffer);
 
             // --- Pass 3: Trace AO (tiled, BVH-accelerated) ---
-            aoShader.SetBuffer(aoKernel, "_Vertices",    context.VertexBuffer);
-            aoShader.SetBuffer(aoKernel, "_Normals",     context.NormalBuffer);
-            aoShader.SetBuffer(aoKernel, "_Indices",     context.IndexBuffer);
-            aoShader.SetBuffer(aoKernel, "_BVHNodes",    bvhNodeBuf);
-            aoShader.SetBuffer(aoKernel, "_PrimIndices", primIndexBuf);
             aoShader.SetTexture(aoKernel, "_PositionMap", positionRT);
             aoShader.SetTexture(aoKernel, "_NormalMap",   normalRT);
             aoShader.SetTexture(aoKernel, "_AOOutput",    aoRT);
             aoShader.SetInt("_TriangleCount",      context.TriangleCount);
+            aoShader.SetInt("_OccTriangleCount",   occlusionGeometry.TriangleCount);
             aoShader.SetInt("_Resolution",         res);
             aoShader.SetInt("_RayCount",           settings.RayCount);
             aoShader.SetFloat("_MaxDistance",      settings.MaxDistance);
@@ -85,7 +77,7 @@ namespace DennokoWorks.Tool.AOBaker
             aoShader.SetInt("_UseMutualOcclusion", settings.UseMutualOcclusion ? 1 : 0);
 
             bool lowRes     = settings.LowResourceMode;
-            int tileSize    = lowRes ? 16 : PickTileSize(context.TriangleCount);
+            int tileSize    = lowRes ? 16 : PickTileSize(occlusionGeometry.TriangleCount);
             int tilesPerRow = Mathf.CeilToInt((float)res / tileSize);
             int tgPerTile   = Mathf.CeilToInt(tileSize / 8f);
             int totalTiles  = tilesPerRow * tilesPerRow;
@@ -119,8 +111,7 @@ namespace DennokoWorks.Tool.AOBaker
                 }
             }
 
-            bvhNodeBuf.Release();
-            primIndexBuf.Release();
+
 
             // --- Pass 4: SVGF Denoising (optional) ---
             RenderTexture finalRT = aoRT;

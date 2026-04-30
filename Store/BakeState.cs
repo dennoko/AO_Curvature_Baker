@@ -107,6 +107,7 @@ namespace DennokoWorks.Tool.AOBaker
     public class BakeState
     {
         public IReadOnlyList<GameObject> TargetMeshes      { get; }
+        public IReadOnlyList<GameObject> OccluderMeshes    { get; }
         public AOSettings                AOSettings         { get; }
         public CurvatureSettings         CurvatureSettings  { get; }
         public BakeStatus                Status             { get; }
@@ -115,22 +116,25 @@ namespace DennokoWorks.Tool.AOBaker
 
         public BakeState(
             IReadOnlyList<GameObject> targetMeshes     = null,
+            IReadOnlyList<GameObject> occluderMeshes   = null,
             AOSettings               aoSettings        = null,
             CurvatureSettings        curvatureSettings = null,
             BakeStatus               status            = BakeStatus.None,
             float                    progress          = 0f,
             string                   statusMessage     = "Ready")
         {
-            TargetMeshes     = targetMeshes     ?? new List<GameObject>().AsReadOnly();
-            AOSettings       = aoSettings       ?? new AOSettings();
+            TargetMeshes      = targetMeshes     ?? new List<GameObject>().AsReadOnly();
+            OccluderMeshes    = occluderMeshes   ?? new List<GameObject>().AsReadOnly();
+            AOSettings        = aoSettings       ?? new AOSettings();
             CurvatureSettings = curvatureSettings ?? new CurvatureSettings();
-            Status           = status;
-            Progress         = progress;
-            StatusMessage    = statusMessage;
+            Status            = status;
+            Progress          = progress;
+            StatusMessage     = statusMessage;
         }
 
         public BakeState With(
             IReadOnlyList<GameObject> targetMeshes     = null,
+            IReadOnlyList<GameObject> occluderMeshes   = null,
             AOSettings               aoSettings        = null,
             CurvatureSettings        curvatureSettings = null,
             BakeStatus?              status            = null,
@@ -138,12 +142,13 @@ namespace DennokoWorks.Tool.AOBaker
             string                   statusMessage     = null)
         {
             return new BakeState(
-                targetMeshes     ?? TargetMeshes,
-                aoSettings       ?? AOSettings,
+                targetMeshes      ?? TargetMeshes,
+                occluderMeshes    ?? OccluderMeshes,
+                aoSettings        ?? AOSettings,
                 curvatureSettings ?? CurvatureSettings,
-                status           ?? Status,
-                progress         ?? Progress,
-                statusMessage    ?? StatusMessage
+                status            ?? Status,
+                progress          ?? Progress,
+                statusMessage     ?? StatusMessage
             );
         }
     }

@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Threading.Tasks;
 using UnityEngine;
@@ -11,9 +12,10 @@ namespace DennokoWorks.Tool.AOBaker
         private const int DefaultResolution     = 1024;
         private const string OutputFolder       = "Assets/GeneratedTextures";
 
-        private readonly MeshFormatService _meshFormat      = new MeshFormatService();
-        private readonly IAOBaker          _aoBaker         = new AOBaker();
-        private readonly ICurvatureBaker   _curvatureBaker  = new CurvatureBaker();
+        private readonly MeshFormatService        _meshFormat       = new MeshFormatService();
+        private readonly OcclusionGeometryBuilder _occlusionBuilder = new OcclusionGeometryBuilder();
+        private readonly IAOBaker                 _aoBaker          = new AOBaker();
+        private readonly ICurvatureBaker          _curvatureBaker   = new CurvatureBaker();
 
         public async Task ExecuteBakePipelineAsync(BakeState state)
         {
@@ -30,6 +32,10 @@ namespace DennokoWorks.Tool.AOBaker
 
                 EnsureOutputFolder();
 
+                // Collect occluder meshes (extract Mesh + Transform pairs)
+                var occluders            = CollectOccluderMeshes(state.OccluderMeshes);
+                var bakedOccluderMeshes  = new List<Mesh>(); // Track baked meshes for cleanup
+
                 float perMesh = 1f / state.TargetMeshes.Count;
 
                 for (int i = 0; i < state.TargetMeshes.Count; i++)
@@ -41,7 +47,8 @@ namespace DennokoWorks.Tool.AOBaker
                     Dispatch(BakeStatus.Baking, baseRatio + perMesh * 0.02f,
                         $"{label} Preparing '{go.name}'...");
 
-                    var mesh = ExtractMesh(go);
+                    bool isBakedMesh = false;
+                    var mesh = ExtractMesh(go, out isBakedMesh);
                     if (mesh == null)
                     {
                         BakeStore.Dispatch(new BakeErrorAction(
@@ -49,17 +56,26 @@ namespace DennokoWorks.Tool.AOBaker
                         continue;
                     }
 
-                    BakeContext   context         = null;
-                    RenderTexture aoResult        = null;
-                    RenderTexture curvatureResult = null;
+                    BakeContext       context          = null;
+                    OcclusionGeometry occlusionGeometry = null;
+                    RenderTexture     aoResult         = null;
+                    RenderTexture     curvatureResult  = null;
                     try
                     {
                         context = _meshFormat.BuildContext(mesh, DefaultResolution);
 
+                        // Build occlusion geometry: target mesh + occluder meshes
+                        Dispatch(BakeStatus.Baking, baseRatio + perMesh * 0.05f,
+                            $"{label} Building occlusion geometry...");
+
+                        Transform targetTransform = go.transform;
+                        occlusionGeometry = _occlusionBuilder.Build(
+                            mesh, targetTransform, occluders);
+
                         // ---- AO bake ----
                         if (bakeAO)
                         {
-                            float aoBase  = bakeCurvature ? 0.5f : 1.0f;
+                            float aoBase = bakeCurvature ? 0.5f : 1.0f;
                             var innerProgress = new Progress<(float p, string msg)>(t =>
                             {
                                 float mapped = baseRatio + perMesh * (t.p * aoBase);
@@ -67,7 +83,8 @@ namespace DennokoWorks.Tool.AOBaker
                                     BakeStatus.Baking, mapped, $"{label} [AO] {t.msg}"));
                             });
 
-                            aoResult = await _aoBaker.ComputeAOAsync(context, state.AOSettings, innerProgress);
+                            aoResult = await _aoBaker.ComputeAOAsync(
+                                context, occlusionGeometry, state.AOSettings, innerProgress);
 
                             Dispatch(BakeStatus.Baking, baseRatio + perMesh * (aoBase * 0.97f),
                                 $"{label} Saving AO texture for '{go.name}'...");
@@ -105,9 +122,19 @@ namespace DennokoWorks.Tool.AOBaker
                     finally
                     {
                         context?.Dispose();
+                        occlusionGeometry?.Dispose();
                         aoResult?.Release();
                         curvatureResult?.Release();
+                        if (isBakedMesh && mesh != null)
+                            UnityEngine.Object.DestroyImmediate(mesh);
                     }
+                }
+
+                // Cleanup baked occluder meshes
+                foreach (var bakedMesh in bakedOccluderMeshes)
+                {
+                    if (bakedMesh != null)
+                        UnityEngine.Object.DestroyImmediate(bakedMesh);
                 }
 
                 AssetDatabase.Refresh();
@@ -119,16 +146,64 @@ namespace DennokoWorks.Tool.AOBaker
             }
         }
 
-        private static Mesh ExtractMesh(GameObject go)
+        /// <summary>
+        /// Collects Mesh + Transform pairs from occluder GameObjects.
+        /// SkinnedMeshRenderer meshes are baked to capture current pose.
+        /// </summary>
+        private static List<(Mesh mesh, Transform transform)> CollectOccluderMeshes(
+            IReadOnlyList<GameObject> occluderObjects)
         {
+            var result = new List<(Mesh mesh, Transform transform)>();
+            if (occluderObjects == null) return result;
+
+            foreach (var go in occluderObjects)
+            {
+                if (go == null) continue;
+
+                var mf = go.GetComponentInChildren<MeshFilter>();
+                if (mf != null && mf.sharedMesh != null)
+                {
+                    result.Add((mf.sharedMesh, mf.transform));
+                    continue;
+                }
+
+                var smr = go.GetComponentInChildren<SkinnedMeshRenderer>();
+                if (smr != null && smr.sharedMesh != null)
+                {
+                    var source = smr.sharedMesh;
+                    var baked = new Mesh { name = source.name + "_occluder_baked" };
+                    smr.BakeMesh(baked);
+                    result.Add((baked, smr.transform));
+                }
+            }
+
+            return result;
+        }
+
+        private static Mesh ExtractMesh(GameObject go, out bool isBakedMesh)
+        {
+            isBakedMesh = false;
+
             var mf = go.GetComponentInChildren<MeshFilter>();
             if (mf != null && mf.sharedMesh != null) return mf.sharedMesh;
 
             var smr = go.GetComponentInChildren<SkinnedMeshRenderer>();
             if (smr != null && smr.sharedMesh != null)
             {
-                var baked = new Mesh { name = smr.sharedMesh.name + "_baked" };
+                var source = smr.sharedMesh;
+                var baked = new Mesh { name = source.name + "_baked" };
                 smr.BakeMesh(baked);
+
+                // BakeMesh only writes skinned vertex positions — copy UVs from the source mesh.
+                for (int ch = 0; ch < 8; ch++)
+                {
+                    var uvList = new List<Vector2>();
+                    source.GetUVs(ch, uvList);
+                    if (uvList.Count > 0)
+                        baked.SetUVs(ch, uvList);
+                }
+
+                isBakedMesh = true;
                 return baked;
             }
             return null;

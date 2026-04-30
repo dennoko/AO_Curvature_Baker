@@ -23,7 +23,9 @@ namespace DennokoWorks.Tool.AOBaker
             {
                 case SetTargetMeshesAction a:
                     return state.With(targetMeshes: a.Targets.AsReadOnly());
-                    
+
+                case SetOccluderMeshesAction a:
+                    return state.With(occluderMeshes: a.Occluders.AsReadOnly());
                 case UpdateAOSettingsAction a:
                     return state.With(aoSettings: a.Settings);
                     

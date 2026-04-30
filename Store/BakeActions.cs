@@ -14,6 +14,15 @@ namespace DennokoWorks.Tool.AOBaker
         }
     }
 
+    public class SetOccluderMeshesAction : IAction
+    {
+        public List<GameObject> Occluders { get; }
+        public SetOccluderMeshesAction(List<GameObject> occluders)
+        {
+            Occluders = occluders;
+        }
+    }
+
     public class UpdateAOSettingsAction : IAction
     {
         public AOSettings Settings { get; }

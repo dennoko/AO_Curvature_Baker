@@ -32,6 +32,15 @@ namespace DennokoWorks.Tool.AOBaker
         }
     }
 
+    public class UpdateCurvatureSettingsAction : IAction
+    {
+        public CurvatureSettings Settings { get; }
+        public UpdateCurvatureSettingsAction(CurvatureSettings settings)
+        {
+            Settings = settings;
+        }
+    }
+
     public class StartBakeAction : IAction {}
 
     public class UpdateProgressAction : IAction

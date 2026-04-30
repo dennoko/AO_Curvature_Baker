@@ -14,8 +14,9 @@ namespace DennokoWorks.Tool.AOBaker
         private GUIStyle actionButtonStyle;
         private Vector2 _scrollPosition;
         
-        private bool _showAdvancedSettings = false;
-        private bool _showDenoiseSettings  = false;
+        private bool _showAdvancedSettings  = false;
+        private bool _showDenoiseSettings   = false;
+        private bool _showCurvatureSettings = false;
 
         [MenuItem("dennokoworks/AO Curvature Baker")]
         public static void ShowWindow()
@@ -274,6 +275,42 @@ namespace DennokoWorks.Tool.AOBaker
                     denoiseSigmaPos:   1.0f,
                     denoiseSigmaNrm:   128f,
                     denoiseSigmaLum:   4.0f)));
+            });
+
+            DrawToggleSection("CURVATURE MAP", ref _showCurvatureSettings, () =>
+            {
+                EditorGUI.BeginChangeCheck();
+
+                bool bakeEnabled = EditorGUILayout.Toggle(
+                    new GUIContent("Bake Curvature", "Enable curvature map baking in addition to AO."),
+                    state.CurvatureSettings.BakeEnabled);
+
+                CurvatureMode mode = (CurvatureMode)EditorGUILayout.EnumPopup(
+                    new GUIContent("Mode",
+                        "Mean Curvature: edge wear mask (smooth normals). " +
+                        "Gaussian Curvature: saddle/dome detection."),
+                    state.CurvatureSettings.Mode);
+
+                float strength = EditorGUILayout.Slider(
+                    new GUIContent("Strength", "Scales the curvature value before remapping. Higher = more contrast."),
+                    state.CurvatureSettings.Strength, 0.01f, 10f);
+
+                float bias = EditorGUILayout.Slider(
+                    new GUIContent("Bias", "Output neutral point. 0.5 = flat surface maps to 50% gray."),
+                    state.CurvatureSettings.Bias, 0f, 1f);
+
+                if (EditorGUI.EndChangeCheck())
+                {
+                    BakeStore.Dispatch(new UpdateCurvatureSettingsAction(
+                        state.CurvatureSettings.With(
+                            bakeEnabled: bakeEnabled,
+                            mode:        mode,
+                            strength:    strength,
+                            bias:        bias)));
+                }
+            }, onReset: () =>
+            {
+                BakeStore.Dispatch(new UpdateCurvatureSettingsAction(new CurvatureSettings()));
             });
 
             GUILayout.EndVertical();

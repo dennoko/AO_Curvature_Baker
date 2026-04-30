@@ -1,0 +1,186 @@
+#pragma kernel RasterizeUV
+#pragma kernel ComputeCurvature
+#pragma target 5.0
+
+// --- Geometry buffers ---
+StructuredBuffer<float3> _Vertices;
+StructuredBuffer<float3> _Normals;
+StructuredBuffer<float2> _UVs;
+StructuredBuffer<int>    _Indices;
+
+// --- G-buffer textures ---
+// _PositionMap: xyz = mesh-space position, w = 1 if valid texel
+// _NormalMap:   xyz = encoded normal (n*0.5+0.5), w = unused
+RWTexture2D<float4> _PositionMap;
+RWTexture2D<float4> _NormalMap;
+
+// --- Curvature output (grayscale: 0.5 = flat, >0.5 = convex, <0.5 = concave) ---
+RWTexture2D<float4> _CurvatureOutput;
+
+// --- Shared parameters ---
+int   _TriangleCount;
+int   _Resolution;
+
+// --- ComputeCurvature parameters ---
+int   _CurvatureMode; // 0 = Mean, 1 = Gaussian
+float _Strength;      // output scale
+float _Bias;          // output neutral point (default 0.5)
+
+// ---------------------------------------------------------------------------
+// Kernel 1 — RasterizeUV
+// Identical to the rasterizer in AOBake.compute.
+// Fills _PositionMap and _NormalMap from triangle UV barycentrics.
+// ---------------------------------------------------------------------------
+[numthreads(8, 8, 1)]
+void RasterizeUV(uint3 id : SV_DispatchThreadID)
+{
+    if ((int)id.x >= _Resolution || (int)id.y >= _Resolution) return;
+
+    _PositionMap[id.xy] = float4(0, 0, 0, 0);
+    _NormalMap[id.xy]   = float4(0, 0, 0, 0);
+
+    float2 texelUV = (float2(id.xy) + 0.5) / (float)_Resolution;
+
+    for (int t = 0; t < _TriangleCount; t++)
+    {
+        int i0 = _Indices[t * 3 + 0];
+        int i1 = _Indices[t * 3 + 1];
+        int i2 = _Indices[t * 3 + 2];
+
+        float2 uv0 = _UVs[i0], uv1 = _UVs[i1], uv2 = _UVs[i2];
+
+        float2 v0 = uv1 - uv0, v1 = uv2 - uv0, v2 = texelUV - uv0;
+        float d00 = dot(v0, v0), d01 = dot(v0, v1), d11 = dot(v1, v1);
+        float d20 = dot(v2, v0), d21 = dot(v2, v1);
+        float denom = d00 * d11 - d01 * d01;
+        if (abs(denom) < 1e-10) continue;
+
+        float inv = 1.0 / denom;
+        float bv  = (d11 * d20 - d01 * d21) * inv;
+        float bw  = (d00 * d21 - d01 * d20) * inv;
+        float bu  = 1.0 - bv - bw;
+
+        if (bu < -0.001 || bv < -0.001 || bw < -0.001) continue;
+
+        float3 pos = bu * _Vertices[i0] + bv * _Vertices[i1] + bw * _Vertices[i2];
+        float3 nrm = normalize(bu * _Normals[i0] + bv * _Normals[i1] + bw * _Normals[i2]);
+
+        _PositionMap[id.xy] = float4(pos, 1.0);
+        _NormalMap[id.xy]   = float4(nrm * 0.5 + 0.5, 1.0);
+        break;
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Kernel 2 — ComputeCurvature
+//
+// Mode 0 — Mean curvature H via the discrete Laplacian of position:
+//   Δp ≈ (pR + pL + pU + pD) − 4·pC    (4-neighbour finite difference)
+//   H   = −(n · Δp) / 2
+//   sign: positive = convex, negative = concave
+//
+// Mode 1 — Gaussian curvature K and Mean curvature H via the shape operator
+//   (second fundamental form) using an 8-neighbour stencil for the cross
+//   derivative ∂²p/∂x∂y:
+//   L = n · ∂²p/∂x²,  M = n · ∂²p/∂x∂y,  N = n · ∂²p/∂y²
+//   E = |∂p/∂x|²,     F = ∂p/∂x · ∂p/∂y, G = |∂p/∂y|²
+//   K = (LN − M²) / (EG − F²)
+//
+// Output remapped:  curvature01 = saturate(value * Strength * 0.5 + Bias)
+//   0.5 neutral (flat), >0.5 convex, <0.5 concave
+// ---------------------------------------------------------------------------
+[numthreads(8, 8, 1)]
+void ComputeCurvature(uint3 id : SV_DispatchThreadID)
+{
+    int px = (int)id.x;
+    int py = (int)id.y;
+    if (px >= _Resolution || py >= _Resolution) return;
+
+    uint2  center  = uint2(px, py);
+    float4 posData = _PositionMap[center];
+
+    // Background texel — write neutral gray
+    if (posData.w < 0.5)
+    {
+        _CurvatureOutput[center] = float4(_Bias, _Bias, _Bias, 1.0);
+        return;
+    }
+
+    // Clamp neighbour coordinates to [0, _Resolution-1]
+    int2 lim = int2(_Resolution - 1, _Resolution - 1);
+    int2 cR  = clamp(int2(px + 1, py),     int2(0, 0), lim);
+    int2 cL  = clamp(int2(px - 1, py),     int2(0, 0), lim);
+    int2 cU  = clamp(int2(px, py + 1),     int2(0, 0), lim);
+    int2 cD  = clamp(int2(px, py - 1),     int2(0, 0), lim);
+
+    float4 posR4 = _PositionMap[cR];
+    float4 posL4 = _PositionMap[cL];
+    float4 posU4 = _PositionMap[cU];
+    float4 posD4 = _PositionMap[cD];
+
+    // Fall back to centre position for invalid (background) neighbours so that
+    // boundary texels get zero contribution from missing data.
+    float3 posC = posData.xyz;
+    float3 posR = posR4.w > 0.5 ? posR4.xyz : posC;
+    float3 posL = posL4.w > 0.5 ? posL4.xyz : posC;
+    float3 posU = posU4.w > 0.5 ? posU4.xyz : posC;
+    float3 posD = posD4.w > 0.5 ? posD4.xyz : posC;
+
+    float3 nC = normalize(_NormalMap[center].xyz * 2.0 - 1.0);
+
+    float curvature = 0.0;
+
+    if (_CurvatureMode == 0)
+    {
+        // --- Mean curvature via discrete Laplacian ---
+        float3 laplacian = (posR + posL + posU + posD) - 4.0 * posC;
+        float H = -dot(nC, laplacian) * 0.5;
+        curvature = H;
+    }
+    else
+    {
+        // --- Gaussian curvature via shape operator (8-neighbour stencil) ---
+        // First fundamental form partial derivatives (central differences)
+        float3 dp_dx = (posR - posL) * 0.5;
+        float3 dp_dy = (posU - posD) * 0.5;
+
+        float E = dot(dp_dx, dp_dx);
+        float F = dot(dp_dx, dp_dy);
+        float G = dot(dp_dy, dp_dy);
+        float EGF2 = E * G - F * F;
+
+        // Second fundamental form second-order partial derivatives
+        float3 dp2_dx2 = posR + posL - 2.0 * posC;        // ∂²p/∂x²
+        float3 dp2_dy2 = posU + posD - 2.0 * posC;        // ∂²p/∂y²
+
+        // Cross derivative ∂²p/∂x∂y from diagonal corners
+        int2 cRU = clamp(int2(px + 1, py + 1), int2(0, 0), lim);
+        int2 cLU = clamp(int2(px - 1, py + 1), int2(0, 0), lim);
+        int2 cRD = clamp(int2(px + 1, py - 1), int2(0, 0), lim);
+        int2 cLD = clamp(int2(px - 1, py - 1), int2(0, 0), lim);
+
+        float4 posRU4 = _PositionMap[cRU];
+        float4 posLU4 = _PositionMap[cLU];
+        float4 posRD4 = _PositionMap[cRD];
+        float4 posLD4 = _PositionMap[cLD];
+
+        float3 posRU = posRU4.w > 0.5 ? posRU4.xyz : posC;
+        float3 posLU = posLU4.w > 0.5 ? posLU4.xyz : posC;
+        float3 posRD = posRD4.w > 0.5 ? posRD4.xyz : posC;
+        float3 posLD = posLD4.w > 0.5 ? posLD4.xyz : posC;
+
+        float3 dp2_dxdy = (posRU - posLU - posRD + posLD) * 0.25; // ∂²p/∂x∂y
+
+        float L = dot(nC, dp2_dx2);
+        float M = dot(nC, dp2_dxdy);
+        float N = dot(nC, dp2_dy2);
+
+        float denom = max(abs(EGF2), 1e-8);
+        float K = (L * N - M * M) / denom;
+        curvature = K;
+    }
+
+    // Remap to [0, 1]: neutral at _Bias, scale by _Strength
+    float curvature01 = saturate(curvature * _Strength * 0.5 + _Bias);
+    _CurvatureOutput[center] = float4(curvature01, curvature01, curvature01, 1.0);
+}

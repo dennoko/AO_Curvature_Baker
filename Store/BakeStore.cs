@@ -29,6 +29,9 @@ namespace DennokoWorks.Tool.AOBaker
                 case UpdateAOSettingsAction a:
                     return state.With(aoSettings: a.Settings);
                     
+                case UpdateCurvatureSettingsAction a:
+                    return state.With(curvatureSettings: a.Settings);
+                    
                 case StartBakeAction _:
                     return state.With(status: BakeStatus.Baking, progress: 0f, statusMessage: "Baking started...");
                     

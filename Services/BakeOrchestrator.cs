@@ -12,9 +12,10 @@ namespace DennokoWorks.Tool.AOBaker
         private const int DefaultResolution     = 1024;
         private const string OutputFolder       = "Assets/GeneratedTextures";
 
-        private readonly MeshFormatService        _meshFormat        = new MeshFormatService();
-        private readonly OcclusionGeometryBuilder _occlusionBuilder  = new OcclusionGeometryBuilder();
-        private readonly IAOBaker                 _aoBaker           = new AOBaker();
+        private readonly MeshFormatService        _meshFormat       = new MeshFormatService();
+        private readonly OcclusionGeometryBuilder _occlusionBuilder = new OcclusionGeometryBuilder();
+        private readonly IAOBaker                 _aoBaker          = new AOBaker();
+        private readonly ICurvatureBaker          _curvatureBaker   = new CurvatureBaker();
 
         public async Task ExecuteBakePipelineAsync(BakeState state)
         {
@@ -26,11 +27,14 @@ namespace DennokoWorks.Tool.AOBaker
                     return;
                 }
 
+                bool bakeAO        = true; // AO is always baked when the pipeline runs
+                bool bakeCurvature = state.CurvatureSettings.BakeEnabled;
+
                 EnsureOutputFolder();
 
                 // Collect occluder meshes (extract Mesh + Transform pairs)
-                var occluders = CollectOccluderMeshes(state.OccluderMeshes);
-                var bakedOccluderMeshes = new List<Mesh>(); // Track baked meshes for cleanup
+                var occluders            = CollectOccluderMeshes(state.OccluderMeshes);
+                var bakedOccluderMeshes  = new List<Mesh>(); // Track baked meshes for cleanup
 
                 float perMesh = 1f / state.TargetMeshes.Count;
 
@@ -52,9 +56,10 @@ namespace DennokoWorks.Tool.AOBaker
                         continue;
                     }
 
-                    BakeContext context = null;
+                    BakeContext       context          = null;
                     OcclusionGeometry occlusionGeometry = null;
-                    RenderTexture aoResult = null;
+                    RenderTexture     aoResult         = null;
+                    RenderTexture     curvatureResult  = null;
                     try
                     {
                         context = _meshFormat.BuildContext(mesh, DefaultResolution);
@@ -67,21 +72,47 @@ namespace DennokoWorks.Tool.AOBaker
                         occlusionGeometry = _occlusionBuilder.Build(
                             mesh, targetTransform, occluders);
 
-                        var innerProgress = new Progress<(float p, string msg)>(t =>
+                        // ---- AO bake ----
+                        if (bakeAO)
                         {
-                            float mapped = baseRatio + perMesh * t.p;
-                            BakeStore.Dispatch(new UpdateProgressAction(
-                                BakeStatus.Baking, mapped, $"{label} {t.msg}"));
-                        });
+                            float aoBase = bakeCurvature ? 0.5f : 1.0f;
+                            var innerProgress = new Progress<(float p, string msg)>(t =>
+                            {
+                                float mapped = baseRatio + perMesh * (t.p * aoBase);
+                                BakeStore.Dispatch(new UpdateProgressAction(
+                                    BakeStatus.Baking, mapped, $"{label} [AO] {t.msg}"));
+                            });
 
-                        aoResult = await _aoBaker.ComputeAOAsync(
-                            context, occlusionGeometry, state.AOSettings, innerProgress);
+                            aoResult = await _aoBaker.ComputeAOAsync(
+                                context, occlusionGeometry, state.AOSettings, innerProgress);
 
-                        Dispatch(BakeStatus.Baking, baseRatio + perMesh * 0.97f,
-                            $"{label} Saving texture for '{go.name}'...");
-                        await Task.Yield();
+                            Dispatch(BakeStatus.Baking, baseRatio + perMesh * (aoBase * 0.97f),
+                                $"{label} Saving AO texture for '{go.name}'...");
+                            await Task.Yield();
 
-                        SaveTexture(aoResult, go.name);
+                            SaveTexture(aoResult, go.name, "BakedAO");
+                        }
+
+                        // ---- Curvature bake ----
+                        if (bakeCurvature)
+                        {
+                            float curvStart = bakeAO ? 0.5f : 0.0f;
+                            var curvProgress = new Progress<(float p, string msg)>(t =>
+                            {
+                                float mapped = baseRatio + perMesh * (curvStart + t.p * (1.0f - curvStart));
+                                BakeStore.Dispatch(new UpdateProgressAction(
+                                    BakeStatus.Baking, mapped, $"{label} [Curvature] {t.msg}"));
+                            });
+
+                            curvatureResult = await _curvatureBaker.ComputeCurvatureAsync(
+                                context, state.CurvatureSettings, curvProgress);
+
+                            Dispatch(BakeStatus.Baking, baseRatio + perMesh * 0.97f,
+                                $"{label} Saving curvature texture for '{go.name}'...");
+                            await Task.Yield();
+
+                            SaveTexture(curvatureResult, go.name, "BakedCurvature");
+                        }
                     }
                     catch (Exception meshEx)
                     {
@@ -93,6 +124,7 @@ namespace DennokoWorks.Tool.AOBaker
                         context?.Dispose();
                         occlusionGeometry?.Dispose();
                         aoResult?.Release();
+                        curvatureResult?.Release();
                         if (isBakedMesh && mesh != null)
                             UnityEngine.Object.DestroyImmediate(mesh);
                     }
@@ -177,7 +209,7 @@ namespace DennokoWorks.Tool.AOBaker
             return null;
         }
 
-        private static void SaveTexture(RenderTexture rt, string meshName)
+        private static void SaveTexture(RenderTexture rt, string meshName, string prefix)
         {
             // Read the float RT into an ARGB32 texture, clamp values to [0,1] automatically
             var readTex = new Texture2D(rt.width, rt.height, TextureFormat.ARGB32, false, true);
@@ -187,8 +219,8 @@ namespace DennokoWorks.Tool.AOBaker
             readTex.Apply();
             RenderTexture.active = prev;
 
-            string safeName = string.Join("_", meshName.Split(Path.GetInvalidFileNameChars()));
-            string assetPath = $"{OutputFolder}/BakedAO_{safeName}.png";
+            string safeName  = string.Join("_", meshName.Split(Path.GetInvalidFileNameChars()));
+            string assetPath = $"{OutputFolder}/{prefix}_{safeName}.png";
             string fullPath  = Path.Combine(
                 Directory.GetCurrentDirectory(), assetPath.Replace('/', Path.DirectorySeparatorChar));
 

@@ -8,6 +8,7 @@ namespace DennokoWorks.Tool.AOBaker
     {
         Task<RenderTexture> ComputeAOAsync(
             BakeContext context,
+            OcclusionGeometry occlusionGeometry,
             AOSettings settings,
             IProgress<(float progress, string message)> progress);
     }

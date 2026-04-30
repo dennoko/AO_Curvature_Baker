@@ -11,13 +11,17 @@ struct BVHNode
     int    count;     // 0 = internal; >0 = leaf
 };
 
-// --- Shared geometry buffers ---
+// --- Rasterize geometry buffers (target mesh only) ---
 StructuredBuffer<float3>  _Vertices;
 StructuredBuffer<float3>  _Normals;
 StructuredBuffer<float2>  _UVs;
 StructuredBuffer<int>     _Indices;
 
-// --- BVH acceleration ---
+// --- Occlusion geometry buffers (merged: target + occluder meshes) ---
+StructuredBuffer<float3>  _OccVertices;
+StructuredBuffer<int>     _OccIndices;
+
+// --- BVH acceleration (built from occlusion geometry) ---
 StructuredBuffer<BVHNode> _BVHNodes;
 StructuredBuffer<int>     _PrimIndices;
 
@@ -31,7 +35,8 @@ RWTexture2D<float4> _NormalMap;
 RWTexture2D<float4> _AOOutput;
 
 // --- Shared parameters ---
-int   _TriangleCount;
+int   _TriangleCount;    // target mesh triangle count (RasterizeUV)
+int   _OccTriangleCount; // occlusion geometry triangle count (TraceAO)
 int   _Resolution;
 
 // --- TraceAO parameters ---
@@ -116,12 +121,12 @@ bool TraceRayBVH(float3 ro, float3 rd, float maxDist)
             for (int k = 0; k < node.count; k++)
             {
                 int tri = _PrimIndices[node.leftFirst + k];
-                int i0  = _Indices[tri * 3 + 0];
-                int i1  = _Indices[tri * 3 + 1];
-                int i2  = _Indices[tri * 3 + 2];
+                int i0  = _OccIndices[tri * 3 + 0];
+                int i1  = _OccIndices[tri * 3 + 1];
+                int i2  = _OccIndices[tri * 3 + 2];
                 float unused;
                 if (RayTriangleIntersect(ro, rd,
-                        _Vertices[i0], _Vertices[i1], _Vertices[i2],
+                        _OccVertices[i0], _OccVertices[i1], _OccVertices[i2],
                         maxDist, unused))
                     return true;
             }

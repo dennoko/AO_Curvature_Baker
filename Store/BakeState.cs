@@ -72,6 +72,7 @@ namespace DennokoWorks.Tool.AOBaker
     public class BakeState
     {
         public IReadOnlyList<GameObject> TargetMeshes { get; }
+        public IReadOnlyList<GameObject> OccluderMeshes { get; }
         public AOSettings AOSettings { get; }
         public BakeStatus Status { get; }
         public float Progress { get; }
@@ -79,12 +80,14 @@ namespace DennokoWorks.Tool.AOBaker
 
         public BakeState(
             IReadOnlyList<GameObject> targetMeshes = null,
+            IReadOnlyList<GameObject> occluderMeshes = null,
             AOSettings aoSettings = null,
             BakeStatus status = BakeStatus.None,
             float progress = 0f,
             string statusMessage = "Ready")
         {
             TargetMeshes = targetMeshes ?? new List<GameObject>().AsReadOnly();
+            OccluderMeshes = occluderMeshes ?? new List<GameObject>().AsReadOnly();
             AOSettings = aoSettings ?? new AOSettings();
             Status = status;
             Progress = progress;
@@ -93,6 +96,7 @@ namespace DennokoWorks.Tool.AOBaker
 
         public BakeState With(
             IReadOnlyList<GameObject> targetMeshes = null,
+            IReadOnlyList<GameObject> occluderMeshes = null,
             AOSettings aoSettings = null,
             BakeStatus? status = null,
             float? progress = null,
@@ -100,6 +104,7 @@ namespace DennokoWorks.Tool.AOBaker
         {
             return new BakeState(
                 targetMeshes ?? TargetMeshes,
+                occluderMeshes ?? OccluderMeshes,
                 aoSettings ?? AOSettings,
                 status ?? Status,
                 progress ?? Progress,

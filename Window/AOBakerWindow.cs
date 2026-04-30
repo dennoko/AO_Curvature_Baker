@@ -126,6 +126,16 @@ namespace DennokoWorks.Tool.AOBaker
                 // Normally we'd use a serialized object or list, but for IMGUI direct we do this:
                 GUILayout.Label($"Current Targets: {state.TargetMeshes.Count}", UniTexTheme.SecondaryTextStyle);
                 
+                // Show registered target names
+                for (int t = 0; t < state.TargetMeshes.Count; t++)
+                {
+                    GUILayout.BeginHorizontal();
+                    GUILayout.Space(8);
+                    GUILayout.Label($"  • {state.TargetMeshes[t].name}", UniTexTheme.SecondaryTextStyle);
+                    GUILayout.FlexibleSpace();
+                    GUILayout.EndHorizontal();
+                }
+
                 if (GUILayout.Button("Select Meshes from Selection", UniTexTheme.SecondaryButtonStyle))
                 {
                     List<GameObject> newTargets = new List<GameObject>();
@@ -137,6 +147,54 @@ namespace DennokoWorks.Tool.AOBaker
                         }
                     }
                     BakeStore.Dispatch(new SetTargetMeshesAction(newTargets));
+                }
+            });
+
+            DrawSection("OCCLUDER MESHES", () =>
+            {
+                GUILayout.Label(
+                    new GUIContent(
+                        $"Occluders: {state.OccluderMeshes.Count}",
+                        "Additional meshes used for occlusion testing.\nRays will check against these meshes as obstacles."),
+                    UniTexTheme.SecondaryTextStyle);
+
+                // Show registered occluder names with remove buttons
+                for (int o = 0; o < state.OccluderMeshes.Count; o++)
+                {
+                    GUILayout.BeginHorizontal();
+                    GUILayout.Space(8);
+                    GUILayout.Label($"  • {state.OccluderMeshes[o].name}", UniTexTheme.SecondaryTextStyle);
+                    GUILayout.FlexibleSpace();
+                    if (GUILayout.Button("×", GUILayout.Width(20), GUILayout.Height(18)))
+                    {
+                        var updated = new List<GameObject>(state.OccluderMeshes);
+                        updated.RemoveAt(o);
+                        BakeStore.Dispatch(new SetOccluderMeshesAction(updated));
+                        GUIUtility.ExitGUI();
+                    }
+                    GUILayout.EndHorizontal();
+                }
+
+                if (GUILayout.Button("Add Occluders from Selection", UniTexTheme.SecondaryButtonStyle))
+                {
+                    var updated = new List<GameObject>(state.OccluderMeshes);
+                    foreach (var obj in Selection.gameObjects)
+                    {
+                        if (obj.GetComponentInChildren<MeshFilter>() != null || obj.GetComponentInChildren<SkinnedMeshRenderer>() != null)
+                        {
+                            if (!updated.Contains(obj))
+                                updated.Add(obj);
+                        }
+                    }
+                    BakeStore.Dispatch(new SetOccluderMeshesAction(updated));
+                }
+
+                if (state.OccluderMeshes.Count > 0)
+                {
+                    if (GUILayout.Button("Clear All Occluders", UniTexTheme.SecondaryButtonStyle))
+                    {
+                        BakeStore.Dispatch(new SetOccluderMeshesAction(new List<GameObject>()));
+                    }
                 }
             });
             

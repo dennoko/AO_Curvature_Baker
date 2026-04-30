@@ -1,0 +1,202 @@
+#pragma kernel RasterizeUV
+#pragma kernel TraceAO
+
+// --- Shared geometry buffers ---
+StructuredBuffer<float3> _Vertices;
+StructuredBuffer<float3> _Normals;
+StructuredBuffer<float2> _UVs;
+StructuredBuffer<int>    _Indices;
+
+// --- G-Buffer textures (written by RasterizeUV, read by TraceAO) ---
+// positionMap: xyz = world-space position, w = 1 if valid texel
+// normalMap:   xyz = encoded normal (n*0.5+0.5), w = unused
+RWTexture2D<float4> _PositionMap;
+RWTexture2D<float4> _NormalMap;
+
+// --- Output ---
+RWTexture2D<float4> _AOOutput;
+
+// --- Parameters ---
+int   _TriangleCount;
+int   _Resolution;
+int   _RayCount;
+float _MaxDistance;
+int   _UseSelfOcclusion;
+int   _UseMutualOcclusion;
+
+// ---------------------------------------------------------------------------
+// Utilities
+// ---------------------------------------------------------------------------
+
+// Möller–Trumbore ray-triangle intersection.
+// Returns true if the ray hits the triangle in (tMin, maxDist).
+bool RayTriangleIntersect(
+    float3 ro, float3 rd,
+    float3 p0, float3 p1, float3 p2,
+    float maxDist, out float tHit)
+{
+    tHit = maxDist;
+    float3 e1 = p1 - p0;
+    float3 e2 = p2 - p0;
+    float3 h  = cross(rd, e2);
+    float  a  = dot(e1, h);
+    if (abs(a) < 1e-8) return false;
+
+    float  f  = 1.0 / a;
+    float3 s  = ro - p0;
+    float  u  = f * dot(s, h);
+    if (u < 0.0 || u > 1.0) return false;
+
+    float3 q  = cross(s, e1);
+    float  v  = f * dot(rd, q);
+    if (v < 0.0 || (u + v) > 1.0) return false;
+
+    float t = f * dot(e2, q);
+    if (t < 1e-4 || t >= maxDist) return false;
+
+    tHit = t;
+    return true;
+}
+
+// Cosine-weighted hemisphere sample aligned to 'normal'.
+float3 SampleHemisphereCosine(float3 normal, float u1, float u2)
+{
+    float sinTheta = sqrt(u1);
+    float cosTheta = sqrt(1.0 - u1);
+    float phi      = 6.28318530718 * u2;
+
+    float3 tangent;
+    if (abs(normal.x) < 0.9)
+        tangent = normalize(cross(float3(1, 0, 0), normal));
+    else
+        tangent = normalize(cross(float3(0, 1, 0), normal));
+    float3 bitangent = cross(normal, tangent);
+
+    return cosTheta * normal
+         + sinTheta * (cos(phi) * tangent + sin(phi) * bitangent);
+}
+
+// PCG hash — fast, good statistical quality, no texture lookup needed.
+float PcgHash(uint seed)
+{
+    uint state = seed * 747796405u + 2891336453u;
+    uint word  = ((state >> ((state >> 28u) + 4u)) ^ state) * 277803737u;
+    word = (word >> 22u) ^ word;
+    return (float)word / 4294967295.0;
+}
+
+// ---------------------------------------------------------------------------
+// Kernel 1 — RasterizeUV
+// Each thread owns one texel. It searches all triangles and fills the G-buffer
+// for the first triangle whose UV projection covers the texel center.
+// This avoids race conditions entirely: one texel = one writer.
+// ---------------------------------------------------------------------------
+[numthreads(8, 8, 1)]
+void RasterizeUV(uint3 id : SV_DispatchThreadID)
+{
+    if ((int)id.x >= _Resolution || (int)id.y >= _Resolution) return;
+
+    // Default: invalid (no geometry at this texel)
+    _PositionMap[id.xy] = float4(0, 0, 0, 0);
+    _NormalMap[id.xy]   = float4(0, 0, 0, 0);
+
+    float2 texelUV = (float2(id.xy) + 0.5) / (float)_Resolution;
+
+    for (int t = 0; t < _TriangleCount; t++)
+    {
+        int i0 = _Indices[t * 3 + 0];
+        int i1 = _Indices[t * 3 + 1];
+        int i2 = _Indices[t * 3 + 2];
+
+        float2 uv0 = _UVs[i0];
+        float2 uv1 = _UVs[i1];
+        float2 uv2 = _UVs[i2];
+
+        // Barycentric test in UV space
+        float2 v0 = uv1 - uv0, v1 = uv2 - uv0, v2 = texelUV - uv0;
+        float d00 = dot(v0, v0), d01 = dot(v0, v1), d11 = dot(v1, v1);
+        float d20 = dot(v2, v0), d21 = dot(v2, v1);
+        float denom = d00 * d11 - d01 * d01;
+        if (abs(denom) < 1e-10) continue;
+
+        float inv = 1.0 / denom;
+        float bv  = (d11 * d20 - d01 * d21) * inv;
+        float bw  = (d00 * d21 - d01 * d20) * inv;
+        float bu  = 1.0 - bv - bw;
+
+        // Small epsilon guard for UV-seam edge cases
+        const float kEps = -0.001;
+        if (bu < kEps || bv < kEps || bw < kEps) continue;
+
+        float3 pos = bu * _Vertices[i0] + bv * _Vertices[i1] + bw * _Vertices[i2];
+        float3 nrm = normalize(bu * _Normals[i0]  + bv * _Normals[i1]  + bw * _Normals[i2]);
+
+        _PositionMap[id.xy] = float4(pos, 1.0);
+        _NormalMap[id.xy]   = float4(nrm * 0.5 + 0.5, 1.0);
+        break; // Claim first matching triangle; avoids ambiguous overlaps
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Kernel 2 — TraceAO
+// Each thread owns one texel. It shoots _RayCount rays into the hemisphere
+// and accumulates occlusion using brute-force ray-triangle intersection.
+// AO = fraction of rays that were NOT occluded (1 = fully lit, 0 = fully dark).
+// ---------------------------------------------------------------------------
+[numthreads(8, 8, 1)]
+void TraceAO(uint3 id : SV_DispatchThreadID)
+{
+    if ((int)id.x >= _Resolution || (int)id.y >= _Resolution) return;
+
+    float4 posData = _PositionMap[id.xy];
+
+    // No geometry — output white (fully unoccluded background)
+    if (posData.w < 0.5)
+    {
+        _AOOutput[id.xy] = float4(1, 1, 1, 1);
+        return;
+    }
+
+    // Skip tracing when both occlusion modes are disabled
+    if (_UseSelfOcclusion == 0 && _UseMutualOcclusion == 0)
+    {
+        _AOOutput[id.xy] = float4(1, 1, 1, 1);
+        return;
+    }
+
+    float3 worldPos    = posData.xyz;
+    float3 worldNormal = normalize(_NormalMap[id.xy].xyz * 2.0 - 1.0);
+
+    // Offset ray origin along normal to avoid self-intersection artifacts
+    float3 rayOrigin = worldPos + worldNormal * 0.001;
+
+    float occluded = 0.0;
+    uint  seed     = id.x * 1973u + id.y * 9277u + 7213u;
+
+    for (int r = 0; r < _RayCount; r++)
+    {
+        float u1 = PcgHash(seed + (uint)r * 2u);
+        float u2 = PcgHash(seed + (uint)r * 2u + 1u);
+        float3 rayDir = SampleHemisphereCosine(worldNormal, u1, u2);
+
+        float unused;
+        for (int t = 0; t < _TriangleCount; t++)
+        {
+            int i0 = _Indices[t * 3 + 0];
+            int i1 = _Indices[t * 3 + 1];
+            int i2 = _Indices[t * 3 + 2];
+
+            if (RayTriangleIntersect(
+                    rayOrigin, rayDir,
+                    _Vertices[i0], _Vertices[i1], _Vertices[i2],
+                    _MaxDistance, unused))
+            {
+                occluded += 1.0;
+                break;
+            }
+        }
+    }
+
+    float ao = 1.0 - (occluded / max((float)_RayCount, 1.0));
+    _AOOutput[id.xy] = float4(ao, ao, ao, 1.0);
+}

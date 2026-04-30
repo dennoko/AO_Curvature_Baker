@@ -201,9 +201,9 @@ namespace DennokoWorks.Tool.AOBaker
             {
                 if (GUILayout.Button("Bake Now", actionButtonStyle))
                 {
+                    var snapshot = BakeStore.State;
                     BakeStore.Dispatch(new StartBakeAction());
-                    // 実際には Orchestrator を呼ぶ。仮実装としてすぐにUpdateProgressActionなどを発火
-                    RunFakeBakeProcess();
+                    _ = new BakeOrchestrator().ExecuteBakePipelineAsync(snapshot);
                 }
             }
 
@@ -268,26 +268,5 @@ namespace DennokoWorks.Tool.AOBaker
             EditorGUILayout.Space(4);
         }
         
-        // Fake async bake for testing UI
-        private async void RunFakeBakeProcess()
-        {
-            try
-            {
-                for (int i = 0; i <= 10; i++)
-                {
-                    await System.Threading.Tasks.Task.Delay(300);
-                    if (EditorApplication.isPlayingOrWillChangePlaymode) break;
-                    string msg = i < 5 ? "Computing AO rays..." : "Denoising via SVGF...";
-                    BakeStatus s = i < 5 ? BakeStatus.Baking : BakeStatus.Denoising;
-                    BakeStore.Dispatch(new UpdateProgressAction(s, i / 10f, msg));
-                }
-                
-                BakeStore.Dispatch(new BakeCompletedAction());
-            }
-            catch (System.Exception ex)
-            {
-                BakeStore.Dispatch(new BakeErrorAction(ex.Message));
-            }
-        }
     }
 }

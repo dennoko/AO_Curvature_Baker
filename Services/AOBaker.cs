@@ -19,6 +19,9 @@ namespace DennokoWorks.Tool.AOBaker
             if (shader == null)
                 throw new InvalidOperationException($"Compute shader not found: {ShaderAssetPath}");
 
+            if (context.TriangleCount == 0)
+                throw new InvalidOperationException("Mesh has no triangles to bake.");
+
             int res = context.TextureResolution;
             int threadGroupsXY = Mathf.CeilToInt(res / 8f);
 

@@ -42,7 +42,7 @@ namespace DennokoWorks.Tool.AOBaker
                     {
                         BakeStore.Dispatch(new BakeErrorAction(
                             $"No mesh found on '{go.name}'. Attach a MeshFilter or SkinnedMeshRenderer."));
-                        return;
+                        continue;
                     }
 
                     BakeContext context = null;
@@ -66,6 +66,11 @@ namespace DennokoWorks.Tool.AOBaker
 
                         SaveTexture(aoResult, go.name);
                     }
+                    catch (Exception meshEx)
+                    {
+                        BakeStore.Dispatch(new BakeErrorAction(
+                            $"{label} Skipped '{go.name}': {meshEx.Message}"));
+                    }
                     finally
                     {
                         context?.Dispose();
@@ -88,7 +93,7 @@ namespace DennokoWorks.Tool.AOBaker
             if (mf != null && mf.sharedMesh != null) return mf.sharedMesh;
 
             var smr = go.GetComponentInChildren<SkinnedMeshRenderer>();
-            if (smr != null)
+            if (smr != null && smr.sharedMesh != null)
             {
                 var baked = new Mesh { name = smr.sharedMesh.name + "_baked" };
                 smr.BakeMesh(baked);

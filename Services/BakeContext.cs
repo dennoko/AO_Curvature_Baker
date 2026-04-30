@@ -19,6 +19,7 @@ namespace DennokoWorks.Tool.AOBaker
         public BakeContext(
             Mesh mesh,
             int resolution,
+            int triangleCount,
             ComputeBuffer vertexBuffer,
             ComputeBuffer normalBuffer,
             ComputeBuffer uvBuffer,
@@ -27,7 +28,7 @@ namespace DennokoWorks.Tool.AOBaker
             SourceMesh = mesh;
             TextureResolution = resolution;
             VertexCount = mesh.vertexCount;
-            TriangleCount = mesh.triangles.Length / 3;
+            TriangleCount = triangleCount;
             VertexBuffer = vertexBuffer;
             NormalBuffer = normalBuffer;
             UVBuffer = uvBuffer;

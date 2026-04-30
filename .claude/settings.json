@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(//c/Users/dennoko/AppData/Local/Unity/Editor//**)",
+      "Read(//c/Users/dennoko/AppData/LocalLow/Unity/Editor//**)"
+    ]
+  }
+}

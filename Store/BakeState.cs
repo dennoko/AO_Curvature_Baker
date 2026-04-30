@@ -5,30 +5,66 @@ namespace DennokoWorks.Tool.AOBaker
 {
     public class AOSettings
     {
-        public bool UseSelfOcclusion { get; }
-        public bool UseMutualOcclusion { get; }
-        public int RayCount { get; }
-        public float MaxDistance { get; }
-        
-        public AOSettings(bool useSelfOcclusion = true, bool useMutualOcclusion = true, int rayCount = 64, float maxDistance = 1.0f)
+        public bool  UseSelfOcclusion   { get; }
+        public bool  UseMutualOcclusion { get; }
+        public int   RayCount           { get; }
+        public float MaxDistance        { get; }
+        public bool  LowResourceMode    { get; }
+
+        // SVGF denoising
+        public bool  DenoiseEnabled    { get; }
+        public int   DenoiseIterations { get; }
+        public float DenoiseSigmaPos   { get; }
+        public float DenoiseSigmaNrm   { get; }
+        public float DenoiseSigmaLum   { get; }
+
+        public AOSettings(
+            bool  useSelfOcclusion   = true,
+            bool  useMutualOcclusion = true,
+            int   rayCount           = 64,
+            float maxDistance        = 1.0f,
+            bool  lowResourceMode    = false,
+            bool  denoiseEnabled     = true,
+            int   denoiseIterations  = 4,
+            float denoiseSigmaPos    = 1.0f,
+            float denoiseSigmaNrm    = 128f,
+            float denoiseSigmaLum    = 4.0f)
         {
-            UseSelfOcclusion = useSelfOcclusion;
+            UseSelfOcclusion   = useSelfOcclusion;
             UseMutualOcclusion = useMutualOcclusion;
-            RayCount = rayCount;
-            MaxDistance = maxDistance;
+            RayCount           = rayCount;
+            MaxDistance        = maxDistance;
+            LowResourceMode    = lowResourceMode;
+            DenoiseEnabled     = denoiseEnabled;
+            DenoiseIterations  = denoiseIterations;
+            DenoiseSigmaPos    = denoiseSigmaPos;
+            DenoiseSigmaNrm    = denoiseSigmaNrm;
+            DenoiseSigmaLum    = denoiseSigmaLum;
         }
 
         public AOSettings With(
-            bool? useSelfOcclusion = null,
-            bool? useMutualOcclusion = null,
-            int? rayCount = null,
-            float? maxDistance = null)
+            bool?  useSelfOcclusion   = null,
+            bool?  useMutualOcclusion = null,
+            int?   rayCount           = null,
+            float? maxDistance        = null,
+            bool?  lowResourceMode    = null,
+            bool?  denoiseEnabled     = null,
+            int?   denoiseIterations  = null,
+            float? denoiseSigmaPos    = null,
+            float? denoiseSigmaNrm    = null,
+            float? denoiseSigmaLum    = null)
         {
             return new AOSettings(
-                useSelfOcclusion ?? UseSelfOcclusion,
+                useSelfOcclusion   ?? UseSelfOcclusion,
                 useMutualOcclusion ?? UseMutualOcclusion,
-                rayCount ?? RayCount,
-                maxDistance ?? MaxDistance
+                rayCount           ?? RayCount,
+                maxDistance        ?? MaxDistance,
+                lowResourceMode    ?? LowResourceMode,
+                denoiseEnabled     ?? DenoiseEnabled,
+                denoiseIterations  ?? DenoiseIterations,
+                denoiseSigmaPos    ?? DenoiseSigmaPos,
+                denoiseSigmaNrm    ?? DenoiseSigmaNrm,
+                denoiseSigmaLum    ?? DenoiseSigmaLum
             );
         }
     }

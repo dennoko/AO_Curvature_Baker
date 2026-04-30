@@ -1,35 +1,54 @@
 #pragma kernel RasterizeUV
 #pragma kernel TraceAO
+#pragma target 5.0
+
+// --- BVH node layout (must match BVHNodeGPU in C#: 32 bytes) ---
+struct BVHNode
+{
+    float3 boundsMin;
+    int    leftFirst; // leaf: first prim in _PrimIndices; internal: left child idx
+    float3 boundsMax;
+    int    count;     // 0 = internal; >0 = leaf
+};
 
 // --- Shared geometry buffers ---
-StructuredBuffer<float3> _Vertices;
-StructuredBuffer<float3> _Normals;
-StructuredBuffer<float2> _UVs;
-StructuredBuffer<int>    _Indices;
+StructuredBuffer<float3>  _Vertices;
+StructuredBuffer<float3>  _Normals;
+StructuredBuffer<float2>  _UVs;
+StructuredBuffer<int>     _Indices;
 
-// --- G-Buffer textures (written by RasterizeUV, read by TraceAO) ---
-// positionMap: xyz = world-space position, w = 1 if valid texel
-// normalMap:   xyz = encoded normal (n*0.5+0.5), w = unused
+// --- BVH acceleration ---
+StructuredBuffer<BVHNode> _BVHNodes;
+StructuredBuffer<int>     _PrimIndices;
+
+// --- G-Buffer textures ---
+// _PositionMap: xyz = mesh-space position,  w = 1 if valid texel, 0 if background
+// _NormalMap:   xyz = encoded normal (n*0.5+0.5), w = unused
 RWTexture2D<float4> _PositionMap;
 RWTexture2D<float4> _NormalMap;
 
-// --- Output ---
+// --- AO output ---
 RWTexture2D<float4> _AOOutput;
 
-// --- Parameters ---
+// --- Shared parameters ---
 int   _TriangleCount;
 int   _Resolution;
+
+// --- TraceAO parameters ---
 int   _RayCount;
 float _MaxDistance;
 int   _UseSelfOcclusion;
 int   _UseMutualOcclusion;
+
+// --- Tile parameters (TraceAO only) ---
+int _TileOffsetX;
+int _TileOffsetY;
 
 // ---------------------------------------------------------------------------
 // Utilities
 // ---------------------------------------------------------------------------
 
 // Möller–Trumbore ray-triangle intersection.
-// Returns true if the ray hits the triangle in (tMin, maxDist).
 bool RayTriangleIntersect(
     float3 ro, float3 rd,
     float3 p0, float3 p1, float3 p2,
@@ -58,11 +77,69 @@ bool RayTriangleIntersect(
     return true;
 }
 
+// Slab-method ray-AABB test. Returns true if the ray intersects [mn,mx] within [0,maxDist].
+bool RayAABBIntersect(float3 ro, float3 invRd, float3 mn, float3 mx, float maxDist)
+{
+    float3 t0   = (mn - ro) * invRd;
+    float3 t1   = (mx - ro) * invRd;
+    float3 tMin = min(t0, t1);
+    float3 tMax = max(t0, t1);
+    float  tN   = max(max(tMin.x, tMin.y), tMin.z);
+    float  tF   = min(min(tMax.x, tMax.y), tMax.z);
+    return tF >= max(tN, 0.0) && tN < maxDist;
+}
+
+// BVH traversal: returns true as soon as any occluder is found (shadow ray).
+bool TraceRayBVH(float3 ro, float3 rd, float maxDist)
+{
+    // Safe reciprocal — avoid divide-by-zero for axis-aligned rays.
+    float3 invRd = float3(
+        abs(rd.x) > 1e-8 ? rcp(rd.x) : 1e30,
+        abs(rd.y) > 1e-8 ? rcp(rd.y) : 1e30,
+        abs(rd.z) > 1e-8 ? rcp(rd.z) : 1e30);
+
+    int stack[64];
+    int top = 0;
+    stack[0] = 0; // root
+
+    [loop]
+    while (top >= 0)
+    {
+        int     idx  = stack[top--];
+        BVHNode node = _BVHNodes[idx];
+
+        if (!RayAABBIntersect(ro, invRd, node.boundsMin, node.boundsMax, maxDist))
+            continue;
+
+        if (node.count > 0) // leaf
+        {
+            for (int k = 0; k < node.count; k++)
+            {
+                int tri = _PrimIndices[node.leftFirst + k];
+                int i0  = _Indices[tri * 3 + 0];
+                int i1  = _Indices[tri * 3 + 1];
+                int i2  = _Indices[tri * 3 + 2];
+                float unused;
+                if (RayTriangleIntersect(ro, rd,
+                        _Vertices[i0], _Vertices[i1], _Vertices[i2],
+                        maxDist, unused))
+                    return true;
+            }
+        }
+        else // internal — push both children
+        {
+            stack[++top] = node.leftFirst;
+            stack[++top] = node.leftFirst + 1;
+        }
+    }
+    return false;
+}
+
 // Cosine-weighted hemisphere sample aligned to 'normal'.
 float3 SampleHemisphereCosine(float3 normal, float u1, float u2)
 {
     float sinTheta = sqrt(u1);
-    float cosTheta = sqrt(1.0 - u1);
+    float cosTheta = sqrt(max(0.0, 1.0 - u1));
     float phi      = 6.28318530718 * u2;
 
     float3 tangent;
@@ -76,7 +153,7 @@ float3 SampleHemisphereCosine(float3 normal, float u1, float u2)
          + sinTheta * (cos(phi) * tangent + sin(phi) * bitangent);
 }
 
-// PCG hash — fast, good statistical quality, no texture lookup needed.
+// PCG hash for low-discrepancy per-texel random numbers.
 float PcgHash(uint seed)
 {
     uint state = seed * 747796405u + 2891336453u;
@@ -87,16 +164,12 @@ float PcgHash(uint seed)
 
 // ---------------------------------------------------------------------------
 // Kernel 1 — RasterizeUV
-// Each thread owns one texel. It searches all triangles and fills the G-buffer
-// for the first triangle whose UV projection covers the texel center.
-// This avoids race conditions entirely: one texel = one writer.
 // ---------------------------------------------------------------------------
 [numthreads(8, 8, 1)]
 void RasterizeUV(uint3 id : SV_DispatchThreadID)
 {
     if ((int)id.x >= _Resolution || (int)id.y >= _Resolution) return;
 
-    // Default: invalid (no geometry at this texel)
     _PositionMap[id.xy] = float4(0, 0, 0, 0);
     _NormalMap[id.xy]   = float4(0, 0, 0, 0);
 
@@ -108,11 +181,8 @@ void RasterizeUV(uint3 id : SV_DispatchThreadID)
         int i1 = _Indices[t * 3 + 1];
         int i2 = _Indices[t * 3 + 2];
 
-        float2 uv0 = _UVs[i0];
-        float2 uv1 = _UVs[i1];
-        float2 uv2 = _UVs[i2];
+        float2 uv0 = _UVs[i0], uv1 = _UVs[i1], uv2 = _UVs[i2];
 
-        // Barycentric test in UV space
         float2 v0 = uv1 - uv0, v1 = uv2 - uv0, v2 = texelUV - uv0;
         float d00 = dot(v0, v0), d01 = dot(v0, v1), d11 = dot(v1, v1);
         float d20 = dot(v2, v0), d21 = dot(v2, v1);
@@ -124,79 +194,60 @@ void RasterizeUV(uint3 id : SV_DispatchThreadID)
         float bw  = (d00 * d21 - d01 * d20) * inv;
         float bu  = 1.0 - bv - bw;
 
-        // Small epsilon guard for UV-seam edge cases
-        const float kEps = -0.001;
-        if (bu < kEps || bv < kEps || bw < kEps) continue;
+        if (bu < -0.001 || bv < -0.001 || bw < -0.001) continue;
 
         float3 pos = bu * _Vertices[i0] + bv * _Vertices[i1] + bw * _Vertices[i2];
-        float3 nrm = normalize(bu * _Normals[i0]  + bv * _Normals[i1]  + bw * _Normals[i2]);
+        float3 nrm = normalize(bu * _Normals[i0] + bv * _Normals[i1] + bw * _Normals[i2]);
 
         _PositionMap[id.xy] = float4(pos, 1.0);
         _NormalMap[id.xy]   = float4(nrm * 0.5 + 0.5, 1.0);
-        break; // Claim first matching triangle; avoids ambiguous overlaps
+        break;
     }
 }
 
 // ---------------------------------------------------------------------------
-// Kernel 2 — TraceAO
-// Each thread owns one texel. It shoots _RayCount rays into the hemisphere
-// and accumulates occlusion using brute-force ray-triangle intersection.
-// AO = fraction of rays that were NOT occluded (1 = fully lit, 0 = fully dark).
+// Kernel 2 — TraceAO  (tiled dispatch, BVH-accelerated)
 // ---------------------------------------------------------------------------
 [numthreads(8, 8, 1)]
 void TraceAO(uint3 id : SV_DispatchThreadID)
 {
-    if ((int)id.x >= _Resolution || (int)id.y >= _Resolution) return;
+    int px = (int)id.x + _TileOffsetX;
+    int py = (int)id.y + _TileOffsetY;
 
-    float4 posData = _PositionMap[id.xy];
+    if (px >= _Resolution || py >= _Resolution) return;
 
-    // No geometry — output white (fully unoccluded background)
+    uint2  texCoord = uint2(px, py);
+    float4 posData  = _PositionMap[texCoord];
+
     if (posData.w < 0.5)
     {
-        _AOOutput[id.xy] = float4(1, 1, 1, 1);
+        _AOOutput[texCoord] = float4(1, 1, 1, 1);
         return;
     }
 
-    // Skip tracing when both occlusion modes are disabled
     if (_UseSelfOcclusion == 0 && _UseMutualOcclusion == 0)
     {
-        _AOOutput[id.xy] = float4(1, 1, 1, 1);
+        _AOOutput[texCoord] = float4(1, 1, 1, 1);
         return;
     }
 
     float3 worldPos    = posData.xyz;
-    float3 worldNormal = normalize(_NormalMap[id.xy].xyz * 2.0 - 1.0);
-
-    // Offset ray origin along normal to avoid self-intersection artifacts
-    float3 rayOrigin = worldPos + worldNormal * 0.001;
+    float3 worldNormal = normalize(_NormalMap[texCoord].xyz * 2.0 - 1.0);
+    float3 rayOrigin   = worldPos + worldNormal * 0.001;
 
     float occluded = 0.0;
-    uint  seed     = id.x * 1973u + id.y * 9277u + 7213u;
+    uint  seed     = (uint)px * 1973u + (uint)py * 9277u + 7213u;
 
     for (int r = 0; r < _RayCount; r++)
     {
-        float u1 = PcgHash(seed + (uint)r * 2u);
-        float u2 = PcgHash(seed + (uint)r * 2u + 1u);
+        float u1      = PcgHash(seed + (uint)r * 2u);
+        float u2      = PcgHash(seed + (uint)r * 2u + 1u);
         float3 rayDir = SampleHemisphereCosine(worldNormal, u1, u2);
 
-        float unused;
-        for (int t = 0; t < _TriangleCount; t++)
-        {
-            int i0 = _Indices[t * 3 + 0];
-            int i1 = _Indices[t * 3 + 1];
-            int i2 = _Indices[t * 3 + 2];
-
-            if (RayTriangleIntersect(
-                    rayOrigin, rayDir,
-                    _Vertices[i0], _Vertices[i1], _Vertices[i2],
-                    _MaxDistance, unused))
-            {
-                occluded += 1.0;
-                break;
-            }
-        }
+        if (TraceRayBVH(rayOrigin, rayDir, _MaxDistance))
+            occluded += 1.0;
     }
 
     float ao = 1.0 - (occluded / max((float)_RayCount, 1.0));
-    _AOOutput[id.xy] = float4(ao, ao, ao, 1.0);
+    _AOOutput[texCoord] = float4(ao, ao, ao, 1.0);
 }

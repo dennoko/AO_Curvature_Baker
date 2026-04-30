@@ -1,0 +1,142 @@
+#pragma kernel EstimateVariance
+#pragma kernel ATrousFilter
+#pragma target 5.0
+
+// --- G-buffer (read-only, for edge-stopping) ---
+Texture2D<float4> _PositionMap;
+Texture2D<float4> _NormalMap;
+
+// --- Ping-pong AO buffers ---
+Texture2D<float4>   _AOIn;
+Texture2D<float4>   _VarianceIn;
+RWTexture2D<float4> _AOOut;
+RWTexture2D<float4> _VarianceOut;
+
+// --- Parameters ---
+int   _Resolution;
+int   _StepWidth;     // ATrousFilter: 1, 2, 4, 8, 16
+float _SigmaPos;      // position   edge-stopping (world units)
+float _SigmaNrm;      // normal     edge-stopping exponent
+float _SigmaLum;      // luminance  edge-stopping
+
+// ---------------------------------------------------------------------------
+// Kernel 1 — EstimateVariance
+// Computes per-pixel variance of AO from a 7×7 neighbourhood.
+// Output stored in .r of _VarianceOut; .gba unused.
+// ---------------------------------------------------------------------------
+[numthreads(8, 8, 1)]
+void EstimateVariance(uint3 id : SV_DispatchThreadID)
+{
+    int px = (int)id.x;
+    int py = (int)id.y;
+    if (px >= _Resolution || py >= _Resolution) return;
+
+    float sumW = 0.0, sumAO = 0.0, sumAO2 = 0.0;
+
+    [unroll]
+    for (int dy = -3; dy <= 3; dy++)
+    {
+        [unroll]
+        for (int dx = -3; dx <= 3; dx++)
+        {
+            int2 c = clamp(int2(px + dx, py + dy), int2(0, 0), int2(_Resolution - 1, _Resolution - 1));
+            float ao = _AOIn[c].r;
+            sumW   += 1.0;
+            sumAO  += ao;
+            sumAO2 += ao * ao;
+        }
+    }
+
+    float mean = sumAO  / sumW;
+    float var  = sumAO2 / sumW - mean * mean;
+
+    _AOOut[id.xy]       = _AOIn[id.xy];              // pass-through AO unchanged
+    _VarianceOut[id.xy] = float4(max(0.0, var), 0, 0, 1);
+}
+
+// ---------------------------------------------------------------------------
+// Kernel 2 — ATrousFilter
+// One a-trous wavelet iteration with step width _StepWidth.
+// Edge-stopping based on position, normal, and luminance variance.
+// 3×3 kernel with dilated offsets gives a 5×5 effective footprint per step.
+// ---------------------------------------------------------------------------
+
+// 3×3 a-trous kernel weights (Mitchell-Netravali approximation)
+static const float kW[3][3] =
+{
+    { 1.0/16.0, 1.0/8.0, 1.0/16.0 },
+    { 1.0/8.0,  1.0/4.0, 1.0/8.0  },
+    { 1.0/16.0, 1.0/8.0, 1.0/16.0 }
+};
+
+[numthreads(8, 8, 1)]
+void ATrousFilter(uint3 id : SV_DispatchThreadID)
+{
+    int px = (int)id.x;
+    int py = (int)id.y;
+    if (px >= _Resolution || py >= _Resolution) return;
+
+    uint2 center = uint2(px, py);
+
+    // Invalid (background) texel — pass through unchanged.
+    if (_PositionMap[center].w < 0.5)
+    {
+        _AOOut[center]       = _AOIn[center];
+        _VarianceOut[center] = _VarianceIn[center];
+        return;
+    }
+
+    float3 posC = _PositionMap[center].xyz;
+    float3 nrmC = normalize(_NormalMap[center].xyz * 2.0 - 1.0);
+    float  aoC  = _AOIn[center].r;
+    float  varC = _VarianceIn[center].r;
+
+    float sigmaPos2 = _SigmaPos * _SigmaPos;
+    float eps       = 1e-4;
+
+    float sumAO  = 0.0;
+    float sumVar = 0.0;
+    float sumW   = 0.0;
+
+    [unroll]
+    for (int dy = -1; dy <= 1; dy++)
+    {
+        [unroll]
+        for (int dx = -1; dx <= 1; dx++)
+        {
+            int2 q = clamp(int2(px + dx * _StepWidth, py + dy * _StepWidth),
+                           int2(0, 0), int2(_Resolution - 1, _Resolution - 1));
+
+            float4 posQ = _PositionMap[q];
+            if (posQ.w < 0.5) continue; // skip background neighbours
+
+            float3 nrmQ = normalize(_NormalMap[q].xyz * 2.0 - 1.0);
+            float  aoQ  = _AOIn[q].r;
+            float  varQ = _VarianceIn[q].r;
+
+            // Position edge-stopping
+            float3 dp   = posQ.xyz - posC;
+            float  wPos = exp(-dot(dp, dp) / (sigmaPos2 + eps));
+
+            // Normal edge-stopping
+            float  wNrm = pow(max(0.0, dot(nrmC, nrmQ)), _SigmaNrm);
+
+            // Luminance edge-stopping (variance-guided)
+            float  dLum = abs(aoQ - aoC);
+            float  wLum = exp(-dLum / (_SigmaLum * sqrt(max(eps, varC)) + eps));
+
+            float kw = kW[dy + 1][dx + 1];
+            float w  = kw * wPos * wNrm * wLum;
+
+            sumAO  += w * aoQ;
+            sumVar += w * w * varQ;
+            sumW   += w;
+        }
+    }
+
+    float filteredAO  = sumAO  / max(sumW, eps);
+    float filteredVar = sumVar / max(sumW * sumW, eps);
+
+    _AOOut[center]       = float4(filteredAO, filteredAO, filteredAO, 1.0);
+    _VarianceOut[center] = float4(filteredVar, 0, 0, 1);
+}

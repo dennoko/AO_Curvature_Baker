@@ -14,8 +14,8 @@ namespace DennokoWorks.Tool.AOBaker
         private GUIStyle actionButtonStyle;
         private Vector2 _scrollPosition;
         
-        // Advanced settings toggle
         private bool _showAdvancedSettings = false;
+        private bool _showDenoiseSettings  = false;
 
         [MenuItem("dennokoworks/AO Curvature Baker")]
         public static void ShowWindow()
@@ -144,12 +144,24 @@ namespace DennokoWorks.Tool.AOBaker
             {
                 EditorGUI.BeginChangeCheck();
 
-                bool useSelf = EditorGUILayout.Toggle("Self Occlusion", state.AOSettings.UseSelfOcclusion);
+                bool useSelf   = EditorGUILayout.Toggle("Self Occlusion",   state.AOSettings.UseSelfOcclusion);
                 bool useMutual = EditorGUILayout.Toggle("Mutual Occlusion", state.AOSettings.UseMutualOcclusion);
+                bool lowRes    = EditorGUILayout.Toggle(
+                    new GUIContent("Low Resource Mode",
+                        "Reduces GPU load by using smaller dispatch tiles and syncing after every tile.\nBake time will be significantly longer."),
+                    state.AOSettings.LowResourceMode);
 
                 if (EditorGUI.EndChangeCheck())
                 {
-                    BakeStore.Dispatch(new UpdateAOSettingsAction(state.AOSettings.With(useSelfOcclusion: useSelf, useMutualOcclusion: useMutual)));
+                    BakeStore.Dispatch(new UpdateAOSettingsAction(
+                        state.AOSettings.With(useSelfOcclusion: useSelf, useMutualOcclusion: useMutual, lowResourceMode: lowRes)));
+                }
+
+                if (state.AOSettings.LowResourceMode)
+                {
+                    EditorGUILayout.HelpBox(
+                        "Low Resource Mode: GPU dispatch tile size is fixed at 16 px and the GPU is flushed after every tile. Bake time will be significantly longer.",
+                        MessageType.Info);
                 }
             });
 
@@ -167,6 +179,43 @@ namespace DennokoWorks.Tool.AOBaker
             }, onReset: () =>
             {
                 BakeStore.Dispatch(new UpdateAOSettingsAction(new AOSettings()));
+            });
+
+            DrawToggleSection("SVGF DENOISING", ref _showDenoiseSettings, () =>
+            {
+                EditorGUI.BeginChangeCheck();
+
+                bool  enabled    = EditorGUILayout.Toggle("Enable Denoising", state.AOSettings.DenoiseEnabled);
+                int   iterations = EditorGUILayout.IntSlider(
+                    new GUIContent("Iterations", "Number of a-trous wavelet filter passes. Each pass doubles the effective kernel radius."),
+                    state.AOSettings.DenoiseIterations, 1, 5);
+                float sigmaPos   = EditorGUILayout.Slider(
+                    new GUIContent("Sigma Position", "Position edge-stopping threshold (world units). Lower = sharper boundaries."),
+                    state.AOSettings.DenoiseSigmaPos, 0.01f, 5f);
+                float sigmaNrm   = EditorGUILayout.Slider(
+                    new GUIContent("Sigma Normal", "Normal edge-stopping exponent. Higher = harder normal edges."),
+                    state.AOSettings.DenoiseSigmaNrm, 1f, 256f);
+                float sigmaLum   = EditorGUILayout.Slider(
+                    new GUIContent("Sigma Luminance", "Luminance edge-stopping scale. Lower = preserve more AO contrast."),
+                    state.AOSettings.DenoiseSigmaLum, 0.1f, 10f);
+
+                if (EditorGUI.EndChangeCheck())
+                {
+                    BakeStore.Dispatch(new UpdateAOSettingsAction(state.AOSettings.With(
+                        denoiseEnabled:    enabled,
+                        denoiseIterations: iterations,
+                        denoiseSigmaPos:   sigmaPos,
+                        denoiseSigmaNrm:   sigmaNrm,
+                        denoiseSigmaLum:   sigmaLum)));
+                }
+            }, onReset: () =>
+            {
+                BakeStore.Dispatch(new UpdateAOSettingsAction(state.AOSettings.With(
+                    denoiseEnabled:    true,
+                    denoiseIterations: 4,
+                    denoiseSigmaPos:   1.0f,
+                    denoiseSigmaNrm:   128f,
+                    denoiseSigmaLum:   4.0f)));
             });
 
             GUILayout.EndVertical();

@@ -1,7 +1,7 @@
-# AO Curvature Baker Usage Guide
+# Fast AO Baker Usage Guide
 
 ## 1. Tool Overview
-AO Curvature Baker is a Unity Editor tool designed to compute and save "Ambient Occlusion (AO)" and "Curvature" maps as textures. 
+Fast AO Baker is a Unity Editor tool designed to compute and save "Ambient Occlusion (AO)" and "Curvature" maps as textures. 
 Using GPU acceleration, it quickly creates masks that represent soft shadows in corners or wear and tear on edges.
 
 ## 2. Basic Workflow

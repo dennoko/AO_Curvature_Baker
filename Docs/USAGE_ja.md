@@ -1,7 +1,7 @@
-# AO Curvature Baker 使い方ガイド
+# Fast AO Baker 使い方ガイド
 
 ## 1. ツール概要
-AO Curvature Bakerは、3Dモデルに対して「Ambient Occlusion (AO / 影)」と「Curvature (曲率 / エッジ)」を計算し、テクスチャとして保存するためのUnityエディタ拡張ツールです。
+Fast AO Bakerは、3Dモデルに対して「Ambient Occlusion (AO / 影)」と「Curvature (曲率 / エッジ)」を計算し、テクスチャとして保存するためのUnityエディタ拡張ツールです。
 GPUを利用した高速な計算により、モデルの隅に溜まる影や、角の擦れを表現するためのマスクを簡単に作成できます。
 
 ## 2. 使用する流れ

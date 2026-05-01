@@ -17,10 +17,10 @@ namespace DennokoWorks.Tool.AOBaker
         
         private bool _showAdvancedSettings  = false;
 
-        [MenuItem("dennokoworks/AO Curvature Baker")]
+        [MenuItem("dennokoworks/Fast AO Baker")]
         public static void ShowWindow()
         {
-            var window = GetWindow<AOBakerWindow>("AO/Curvature Baker");
+            var window = GetWindow<AOBakerWindow>("Fast AO Baker");
             window.minSize = new Vector2(400, 600);
         }
 

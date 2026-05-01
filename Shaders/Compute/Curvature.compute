@@ -74,20 +74,22 @@ void RasterizeUV(uint3 id : SV_DispatchThreadID)
 // ---------------------------------------------------------------------------
 // Kernel 2 — ComputeCurvature
 //
-// Mode 0 — Mean curvature H via the discrete Laplacian of position:
-//   Δp ≈ (pR + pL + pU + pD) − 4·pC    (4-neighbour finite difference)
-//   H   = −(n · Δp) / 2
-//   sign: positive = convex, negative = concave
+// Both modes use the first fundamental form (E, F, G) to normalise the
+// curvature estimate so that output is scale-invariant with respect to mesh
+// size and UV mapping density.
 //
-// Mode 1 — Gaussian curvature K and Mean curvature H via the shape operator
-//   (second fundamental form) using an 8-neighbour stencil for the cross
-//   derivative ∂²p/∂x∂y:
-//   L = n · ∂²p/∂x²,  M = n · ∂²p/∂x∂y,  N = n · ∂²p/∂y²
-//   E = |∂p/∂x|²,     F = ∂p/∂x · ∂p/∂y, G = |∂p/∂y|²
-//   K = (LN − M²) / (EG − F²)
+// Mode 0 — Mean curvature H via the normalised Laplace-Beltrami operator:
+//   E = |∂p/∂x|²,  F = ∂p/∂x·∂p/∂y,  G = |∂p/∂y|²
+//   L = n·∂²p/∂x², N = n·∂²p/∂y²
+//   H = −(G·L + E·N) / (2·(EG−F²))        (F·M cross term omitted)
+//   sign: H > 0 = convex, H < 0 = concave
+//
+// Mode 1 — Gaussian curvature K via the shape operator (8-neighbour stencil):
+//   M = n·∂²p/∂x∂y  (cross derivative from diagonal corners)
+//   K = (L·N − M²) / (EG − F²)
 //
 // Output remapped:  curvature01 = saturate(value * Strength * 0.5 + Bias)
-//   0.5 neutral (flat), >0.5 convex, <0.5 concave
+//   Bias (default 0.5) = flat, >Bias = convex/elliptic, <Bias = concave/saddle
 // ---------------------------------------------------------------------------
 [numthreads(8, 8, 1)]
 void ComputeCurvature(uint3 id : SV_DispatchThreadID)
@@ -118,42 +120,73 @@ void ComputeCurvature(uint3 id : SV_DispatchThreadID)
     float4 posU4 = _PositionMap[cU];
     float4 posD4 = _PositionMap[cD];
 
-    // Fall back to centre position for invalid (background) neighbours so that
-    // boundary texels get zero contribution from missing data.
     float3 posC = posData.xyz;
-    float3 posR = posR4.w > 0.5 ? posR4.xyz : posC;
-    float3 posL = posL4.w > 0.5 ? posL4.xyz : posC;
-    float3 posU = posU4.w > 0.5 ? posU4.xyz : posC;
-    float3 posD = posD4.w > 0.5 ? posD4.xyz : posC;
+
+    // Seam-aware neighbour sampling.
+    // At UV seams an adjacent texel in texture space maps to a geometrically
+    // distant part of the mesh.  Detect this by comparing the 3-D distance on
+    // opposite sides of each axis: a genuine seam makes one side >> the other.
+    // When a seam is detected, mirror the valid side across posC so the second
+    // derivative evaluates to zero → neutral gray instead of wireframe artefacts.
+    float dR = posR4.w > 0.5 ? length(posR4.xyz - posC) : 0.0;
+    float dL = posL4.w > 0.5 ? length(posL4.xyz - posC) : 0.0;
+    float dU = posU4.w > 0.5 ? length(posU4.xyz - posC) : 0.0;
+    float dD = posD4.w > 0.5 ? length(posD4.xyz - posC) : 0.0;
+
+    const float SeamRatio = 10.0;
+    bool hasR = posR4.w > 0.5, hasL = posL4.w > 0.5;
+    bool hasU = posU4.w > 0.5, hasD = posD4.w > 0.5;
+
+    // A side is a seam if both neighbours exist and its distance is >> the other.
+    bool seamR = hasR && hasL && (dR > dL * SeamRatio);
+    bool seamL = hasR && hasL && (dL > dR * SeamRatio);
+    bool seamU = hasU && hasD && (dU > dD * SeamRatio);
+    bool seamD = hasU && hasD && (dD > dU * SeamRatio);
+
+    // Mirror the opposite valid side to force second-derivative = 0 at seams.
+    // Falls back to posC when both sides are missing or both are seams.
+    float3 posR = (hasR && !seamR) ? posR4.xyz : (hasL && !seamL ? 2.0*posC - posL4.xyz : posC);
+    float3 posL = (hasL && !seamL) ? posL4.xyz : (hasR && !seamR ? 2.0*posC - posR4.xyz : posC);
+    float3 posU = (hasU && !seamU) ? posU4.xyz : (hasD && !seamD ? 2.0*posC - posD4.xyz : posC);
+    float3 posD = (hasD && !seamD) ? posD4.xyz : (hasU && !seamU ? 2.0*posC - posU4.xyz : posC);
 
     float3 nC = normalize(_NormalMap[center].xyz * 2.0 - 1.0);
+
+    // First fundamental form (metric) — shared by both curvature modes
+    float3 dp_dx = (posR - posL) * 0.5;
+    float3 dp_dy = (posU - posD) * 0.5;
+    float E    = dot(dp_dx, dp_dx);
+    float F    = dot(dp_dx, dp_dy);
+    float G    = dot(dp_dy, dp_dy);
+    float EGF2 = E * G - F * F;   // always >= 0 (Cauchy-Schwarz)
+
+    // Second fundamental form (x/y second derivatives; cross term computed below for mode 1)
+    float3 dp2_dx2 = posR + posL - 2.0 * posC;
+    float3 dp2_dy2 = posU + posD - 2.0 * posC;
+    float Lcoeff   = dot(nC, dp2_dx2);
+    float Ncoeff   = dot(nC, dp2_dy2);
+
+    // Scale-relative epsilon: prevents division blow-up at degenerate UV texels
+    // while remaining correct across all mesh/texture-resolution combinations.
+    float maxEG = max(E, G);
+    float denom = max(EGF2, maxEG * maxEG * 1e-6);
 
     float curvature = 0.0;
 
     if (_CurvatureMode == 0)
     {
-        // --- Mean curvature via discrete Laplacian ---
-        float3 laplacian = (posR + posL + posU + posD) - 4.0 * posC;
-        float H = -dot(nC, laplacian) * 0.5;
+        // Mean curvature H = -(G·L + E·N) / (2·(EG−F²))
+        // The F·M cross term is omitted (≈ 0 for near-orthogonal UV maps).
+        // Without this normalization by the metric the raw Laplacian is O(h²)
+        // times too small, making the output uniformly gray.
+        float H = -(G * Lcoeff + E * Ncoeff) / (2.0 * denom);
         curvature = H;
     }
     else
     {
-        // --- Gaussian curvature via shape operator (8-neighbour stencil) ---
-        // First fundamental form partial derivatives (central differences)
-        float3 dp_dx = (posR - posL) * 0.5;
-        float3 dp_dy = (posU - posD) * 0.5;
-
-        float E = dot(dp_dx, dp_dx);
-        float F = dot(dp_dx, dp_dy);
-        float G = dot(dp_dy, dp_dy);
-        float EGF2 = E * G - F * F;
-
-        // Second fundamental form second-order partial derivatives
-        float3 dp2_dx2 = posR + posL - 2.0 * posC;        // ∂²p/∂x²
-        float3 dp2_dy2 = posU + posD - 2.0 * posC;        // ∂²p/∂y²
-
-        // Cross derivative ∂²p/∂x∂y from diagonal corners
+        // Gaussian curvature K = (L·N − M²) / (EG−F²)
+        // The old absolute clamp (1e-8) was larger than EGF2 for typical
+        // mesh+texture combinations, suppressing K by 10–100×.
         int2 cRU = clamp(int2(px + 1, py + 1), int2(0, 0), lim);
         int2 cLU = clamp(int2(px - 1, py + 1), int2(0, 0), lim);
         int2 cRD = clamp(int2(px + 1, py - 1), int2(0, 0), lim);
@@ -164,19 +197,24 @@ void ComputeCurvature(uint3 id : SV_DispatchThreadID)
         float4 posRD4 = _PositionMap[cRD];
         float4 posLD4 = _PositionMap[cLD];
 
-        float3 posRU = posRU4.w > 0.5 ? posRU4.xyz : posC;
-        float3 posLU = posLU4.w > 0.5 ? posLU4.xyz : posC;
-        float3 posRD = posRD4.w > 0.5 ? posRD4.xyz : posC;
-        float3 posLD = posLD4.w > 0.5 ? posLD4.xyz : posC;
+        // Diagonal seam threshold: allow up to SeamRatio times the largest
+        // clean cardinal step (sqrt(2) diagonal ≈ 1.5× cardinal).
+        float cleanR = seamR ? 0.0 : dR;
+        float cleanL = seamL ? 0.0 : dL;
+        float cleanU = seamU ? 0.0 : dU;
+        float cleanD = seamD ? 0.0 : dD;
+        float diagThresh = max(max(cleanR, cleanL), max(cleanU, cleanD)) * SeamRatio * 1.5;
+        diagThresh = max(diagThresh, 1e-10);
 
-        float3 dp2_dxdy = (posRU - posLU - posRD + posLD) * 0.25; // ∂²p/∂x∂y
+        float3 posRU = (posRU4.w > 0.5 && length(posRU4.xyz - posC) < diagThresh) ? posRU4.xyz : posC;
+        float3 posLU = (posLU4.w > 0.5 && length(posLU4.xyz - posC) < diagThresh) ? posLU4.xyz : posC;
+        float3 posRD = (posRD4.w > 0.5 && length(posRD4.xyz - posC) < diagThresh) ? posRD4.xyz : posC;
+        float3 posLD = (posLD4.w > 0.5 && length(posLD4.xyz - posC) < diagThresh) ? posLD4.xyz : posC;
 
-        float L = dot(nC, dp2_dx2);
-        float M = dot(nC, dp2_dxdy);
-        float N = dot(nC, dp2_dy2);
+        float3 dp2_dxdy = (posRU - posLU - posRD + posLD) * 0.25;
+        float Mcoeff    = dot(nC, dp2_dxdy);
 
-        float denom = max(abs(EGF2), 1e-8);
-        float K = (L * N - M * M) / denom;
+        float K = (Lcoeff * Ncoeff - Mcoeff * Mcoeff) / denom;
         curvature = K;
     }
 

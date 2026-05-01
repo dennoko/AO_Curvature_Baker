@@ -123,80 +123,12 @@ namespace DennokoWorks.Tool.AOBaker
 
             DrawSection("TARGET", () =>
             {
-                // To keep it simple for now, we just present a list or single object slot.
-                // Normally we'd use a serialized object or list, but for IMGUI direct we do this:
-                GUILayout.Label($"Current Targets: {state.TargetMeshes.Count}", UniTexTheme.SecondaryTextStyle);
-                
-                // Show registered target names
-                for (int t = 0; t < state.TargetMeshes.Count; t++)
-                {
-                    GUILayout.BeginHorizontal();
-                    GUILayout.Space(8);
-                    GUILayout.Label($"  • {state.TargetMeshes[t].name}", UniTexTheme.SecondaryTextStyle);
-                    GUILayout.FlexibleSpace();
-                    GUILayout.EndHorizontal();
-                }
-
-                if (GUILayout.Button("Select Meshes from Selection", UniTexTheme.SecondaryButtonStyle))
-                {
-                    List<GameObject> newTargets = new List<GameObject>();
-                    foreach (var obj in Selection.gameObjects)
-                    {
-                        if (obj.GetComponentInChildren<MeshFilter>() != null || obj.GetComponentInChildren<SkinnedMeshRenderer>() != null)
-                        {
-                            newTargets.Add(obj);
-                        }
-                    }
-                    BakeStore.Dispatch(new SetTargetMeshesAction(newTargets));
-                }
+                DrawTargetMeshSlots(state);
             });
 
             DrawSection("OCCLUDER MESHES", () =>
             {
-                GUILayout.Label(
-                    new GUIContent(
-                        $"Occluders: {state.OccluderMeshes.Count}",
-                        "Additional meshes used for occlusion testing.\nRays will check against these meshes as obstacles."),
-                    UniTexTheme.SecondaryTextStyle);
-
-                // Show registered occluder names with remove buttons
-                for (int o = 0; o < state.OccluderMeshes.Count; o++)
-                {
-                    GUILayout.BeginHorizontal();
-                    GUILayout.Space(8);
-                    GUILayout.Label($"  • {state.OccluderMeshes[o].name}", UniTexTheme.SecondaryTextStyle);
-                    GUILayout.FlexibleSpace();
-                    if (GUILayout.Button("×", GUILayout.Width(20), GUILayout.Height(18)))
-                    {
-                        var updated = new List<GameObject>(state.OccluderMeshes);
-                        updated.RemoveAt(o);
-                        BakeStore.Dispatch(new SetOccluderMeshesAction(updated));
-                        GUIUtility.ExitGUI();
-                    }
-                    GUILayout.EndHorizontal();
-                }
-
-                if (GUILayout.Button("Add Occluders from Selection", UniTexTheme.SecondaryButtonStyle))
-                {
-                    var updated = new List<GameObject>(state.OccluderMeshes);
-                    foreach (var obj in Selection.gameObjects)
-                    {
-                        if (obj.GetComponentInChildren<MeshFilter>() != null || obj.GetComponentInChildren<SkinnedMeshRenderer>() != null)
-                        {
-                            if (!updated.Contains(obj))
-                                updated.Add(obj);
-                        }
-                    }
-                    BakeStore.Dispatch(new SetOccluderMeshesAction(updated));
-                }
-
-                if (state.OccluderMeshes.Count > 0)
-                {
-                    if (GUILayout.Button("Clear All Occluders", UniTexTheme.SecondaryButtonStyle))
-                    {
-                        BakeStore.Dispatch(new SetOccluderMeshesAction(new List<GameObject>()));
-                    }
-                }
+                DrawOccluderMeshSlots(state);
             });
             
             DrawSection("BASIC AO SETTINGS", () =>
@@ -403,6 +335,150 @@ namespace DennokoWorks.Tool.AOBaker
             }
 
             GUILayout.EndVertical();
+        }
+
+        /// <summary>
+        /// TARGET section: ObjectField slots for target meshes.
+        /// Each slot can receive drag-and-drop directly.
+        /// </summary>
+        private void DrawTargetMeshSlots(BakeState state)
+        {
+            var list = new List<GameObject>(state.TargetMeshes);
+
+            // Existing targets as ObjectField rows with remove button
+            for (int i = 0; i < list.Count; i++)
+            {
+                GUILayout.BeginHorizontal();
+
+                EditorGUI.BeginChangeCheck();
+                var newObj = (GameObject)EditorGUILayout.ObjectField(
+                    list[i], typeof(GameObject), true);
+                if (EditorGUI.EndChangeCheck())
+                {
+                    if (newObj != null && !HasMeshComponent(newObj))
+                    {
+                        Debug.LogWarning($"[AO Baker] '{newObj.name}' has no MeshFilter or SkinnedMeshRenderer.");
+                    }
+                    else
+                    {
+                        list[i] = newObj;
+                        list.RemoveAll(go => go == null);
+                        BakeStore.Dispatch(new SetTargetMeshesAction(list));
+                        GUIUtility.ExitGUI();
+                    }
+                }
+
+                if (GUILayout.Button("×", GUILayout.Width(22), GUILayout.Height(18)))
+                {
+                    list.RemoveAt(i);
+                    BakeStore.Dispatch(new SetTargetMeshesAction(list));
+                    GUIUtility.ExitGUI();
+                }
+
+                GUILayout.EndHorizontal();
+            }
+
+            // Spacing between existing items and the empty slot
+            if (list.Count > 0)
+                EditorGUILayout.Space(4);
+
+            // Empty slot for adding a new target via drag-and-drop
+            EditorGUI.BeginChangeCheck();
+            var addObj = (GameObject)EditorGUILayout.ObjectField(
+                "Add Target", null, typeof(GameObject), true);
+            if (EditorGUI.EndChangeCheck() && addObj != null)
+            {
+                if (!HasMeshComponent(addObj))
+                {
+                    Debug.LogWarning($"[AO Baker] '{addObj.name}' has no MeshFilter or SkinnedMeshRenderer.");
+                }
+                else if (!list.Contains(addObj))
+                {
+                    list.Add(addObj);
+                    BakeStore.Dispatch(new SetTargetMeshesAction(list));
+                    GUIUtility.ExitGUI();
+                }
+            }
+        }
+
+        /// <summary>
+        /// OCCLUDER section: registered occluders shown as a list,
+        /// with an empty ObjectField slot at the bottom for adding new ones.
+        /// </summary>
+        private void DrawOccluderMeshSlots(BakeState state)
+        {
+            var list = new List<GameObject>(state.OccluderMeshes);
+
+            // Existing occluders as ObjectField rows with remove button
+            for (int i = 0; i < list.Count; i++)
+            {
+                GUILayout.BeginHorizontal();
+
+                EditorGUI.BeginChangeCheck();
+                var newObj = (GameObject)EditorGUILayout.ObjectField(
+                    list[i], typeof(GameObject), true);
+                if (EditorGUI.EndChangeCheck())
+                {
+                    if (newObj != null && !HasMeshComponent(newObj))
+                    {
+                        Debug.LogWarning($"[AO Baker] '{newObj.name}' has no MeshFilter or SkinnedMeshRenderer.");
+                    }
+                    else
+                    {
+                        list[i] = newObj;
+                        list.RemoveAll(go => go == null);
+                        BakeStore.Dispatch(new SetOccluderMeshesAction(list));
+                        GUIUtility.ExitGUI();
+                    }
+                }
+
+                if (GUILayout.Button("×", GUILayout.Width(22), GUILayout.Height(18)))
+                {
+                    list.RemoveAt(i);
+                    BakeStore.Dispatch(new SetOccluderMeshesAction(list));
+                    GUIUtility.ExitGUI();
+                }
+
+                GUILayout.EndHorizontal();
+            }
+
+            // Spacing between existing items and the empty slot
+            if (list.Count > 0)
+                EditorGUILayout.Space(4);
+
+            // Empty slot for adding a new occluder via drag-and-drop
+            EditorGUI.BeginChangeCheck();
+            var addObj = (GameObject)EditorGUILayout.ObjectField(
+                "Add Occluder", null, typeof(GameObject), true);
+            if (EditorGUI.EndChangeCheck() && addObj != null)
+            {
+                if (!HasMeshComponent(addObj))
+                {
+                    Debug.LogWarning($"[AO Baker] '{addObj.name}' has no MeshFilter or SkinnedMeshRenderer.");
+                }
+                else if (!list.Contains(addObj))
+                {
+                    list.Add(addObj);
+                    BakeStore.Dispatch(new SetOccluderMeshesAction(list));
+                    GUIUtility.ExitGUI();
+                }
+            }
+
+            // Clear all button
+            if (list.Count > 1)
+            {
+                EditorGUILayout.Space(2);
+                if (GUILayout.Button("Clear All", UniTexTheme.SecondaryButtonStyle))
+                {
+                    BakeStore.Dispatch(new SetOccluderMeshesAction(new List<GameObject>()));
+                }
+            }
+        }
+
+        private static bool HasMeshComponent(GameObject go)
+        {
+            return go.GetComponentInChildren<MeshFilter>() != null
+                || go.GetComponentInChildren<SkinnedMeshRenderer>() != null;
         }
 
         private void DrawSeparator()

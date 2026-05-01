@@ -9,9 +9,9 @@ namespace DennokoWorks.Tool.AOBaker
     public class AOBaker : IAOBaker
     {
         private const string AoShaderPath =
-            "Assets/Editor/AO_Curvature_Baker/Shaders/Compute/AOBake.compute";
+            "Assets/Editor/FastAOBaker/Shaders/Compute/AOBake.compute";
         private const string DenoiseShaderPath =
-            "Assets/Editor/AO_Curvature_Baker/Shaders/Compute/Denoise.compute";
+            "Assets/Editor/FastAOBaker/Shaders/Compute/Denoise.compute";
 
         private static string L(string key, params object[] args) => string.Format(LocalizationManager.Get(key), args);
 

@@ -10,7 +10,7 @@ namespace DennokoWorks.Tool.AOBaker
     public class CurvatureBaker : ICurvatureBaker
     {
         private const string CurvatureShaderPath =
-            "Assets/Editor/AO_Curvature_Baker/Shaders/Compute/Curvature.compute";
+            "Assets/Editor/FastAOBaker/Shaders/Compute/Curvature.compute";
 
         private static string L(string key, params object[] args) => string.Format(LocalizationManager.Get(key), args);
 

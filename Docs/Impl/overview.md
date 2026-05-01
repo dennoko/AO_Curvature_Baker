@@ -56,7 +56,7 @@ Action: ユーザーからの操作内容（例：「メッシュを追加」「
 Store / Reducer: Actionを受け取り、現在のStateとActionの内容から新しいStateを生成し、Viewに変更を通知する。非同期処理（実際のベイク処理）はミドルウェアやService層に移譲する。
 ディレクトリ構成 (Directory Structure)
 text
-AO_Curvature_Baker/
+FastAOBaker/
 ├── Docs/
 ├── Editor/
 │   ├── Window/

@@ -13,7 +13,7 @@ namespace DennokoWorks.Tool.AOBaker
         private const int    SamplingResolution      = 1024;
         private const string FallbackOutputFolder    = "Assets/GeneratedTextures";
         private const string PostProcessShaderPath   =
-            "Assets/Editor/AO_Curvature_Baker/Shaders/Compute/PostProcess.compute";
+            "Assets/Editor/FastAOBaker/Shaders/Compute/PostProcess.compute";
 
         private readonly MeshFormatService        _meshFormat       = new MeshFormatService();
         private readonly OcclusionGeometryBuilder _occlusionBuilder = new OcclusionGeometryBuilder();

@@ -41,7 +41,7 @@ namespace DennokoWorks.Tool.AOBaker
         private static void LoadTranslations()
         {
             string fileName = _currentLanguage == Language.Japanese ? "ja" : "en";
-            string path = $"Assets/Editor/AO_Curvature_Baker/Source/Language/{fileName}.json";
+            string path = $"Assets/Editor/FastAOBaker/Source/Language/{fileName}.json";
             
             var asset = AssetDatabase.LoadAssetAtPath<TextAsset>(path);
             if (asset != null)

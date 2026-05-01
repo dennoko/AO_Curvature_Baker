@@ -39,6 +39,12 @@ namespace DennokoWorks.Tool.AOBaker
             var normalRT   = CreateRT(res, RenderTextureFormat.ARGBFloat);
             var aoRT       = CreateRT(res, RenderTextureFormat.ARGBFloat);
 
+            // Clear AO RT to white with alpha 0 (background)
+            var prevActive = RenderTexture.active;
+            RenderTexture.active = aoRT;
+            GL.Clear(false, true, new Color(1, 1, 1, 0));
+            RenderTexture.active = prevActive;
+
             // --- Pass 1: Rasterize UV ---
             progress?.Report((0.05f, "Rasterizing UV space..."));
             await Task.Yield();

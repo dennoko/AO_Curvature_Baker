@@ -285,8 +285,8 @@ namespace DennokoWorks.Tool.AOBaker
             RenderTexture rtA = CreateFloatRT(resolution);
             RenderTexture rtB = CreateFloatRT(resolution);
 
-            // Copy source into rtA
-            Graphics.Blit(src, rtA);
+            // Copy source into rtA — use CopyTexture to ensure alpha (background mask) is preserved bit-exactly.
+            Graphics.CopyTexture(src, rtA);
 
             // 1. Dilation
             if (doDilate)

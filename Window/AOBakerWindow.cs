@@ -245,6 +245,11 @@ namespace DennokoWorks.Tool.AOBaker
                 BakeStore.Dispatch(new UpdateCurvatureSettingsAction(new CurvatureSettings()));
             });
 
+            DrawSection("OUTPUT SETTINGS", () =>
+            {
+                DrawOutputSettings(state);
+            });
+
             GUILayout.EndVertical();
         }
 
@@ -479,6 +484,76 @@ namespace DennokoWorks.Tool.AOBaker
         {
             return go.GetComponentInChildren<MeshFilter>() != null
                 || go.GetComponentInChildren<SkinnedMeshRenderer>() != null;
+        }
+
+        // ---- Output Settings UI ----
+
+        private static readonly int[] ResolutionOptions = { 128, 256, 512, 1024, 2048, 4096 };
+        private static readonly string[] ResolutionLabels = { "128", "256", "512", "1024", "2048", "4096" };
+
+        private void DrawOutputSettings(BakeState state)
+        {
+            var settings = state.OutputSettings;
+            EditorGUI.BeginChangeCheck();
+
+            // Resolution popup
+            int currentIndex = System.Array.IndexOf(ResolutionOptions, settings.OutputResolution);
+            if (currentIndex < 0) currentIndex = 3; // fallback to 1024
+            int newIndex = EditorGUILayout.Popup(
+                new GUIContent("Output Resolution",
+                    "Final texture resolution. AO is sampled at 1024 internally, then scaled to this size."),
+                currentIndex, ResolutionLabels);
+            int newResolution = ResolutionOptions[newIndex];
+
+            // Output folder
+            GUILayout.BeginHorizontal();
+            string displayFolder = string.IsNullOrEmpty(settings.OutputFolder) ? "(Auto)" : settings.OutputFolder;
+            EditorGUILayout.TextField(
+                new GUIContent("Output Folder",
+                    "Leave empty for auto-detection. Auto: uses main texture path + BakedAO/, or Assets/GeneratedTextures."),
+                displayFolder);
+
+            if (GUILayout.Button("...", GUILayout.Width(30)))
+            {
+                string selected = EditorUtility.OpenFolderPanel("Select Output Folder", "Assets", "");
+                if (!string.IsNullOrEmpty(selected))
+                {
+                    // Convert absolute path to Assets-relative path
+                    string dataPath = Application.dataPath;
+                    if (selected.StartsWith(dataPath))
+                    {
+                        selected = "Assets" + selected.Substring(dataPath.Length);
+                    }
+                    BakeStore.Dispatch(new UpdateOutputSettingsAction(
+                        settings.With(outputFolder: selected)));
+                    GUIUtility.ExitGUI();
+                }
+            }
+
+            if (!string.IsNullOrEmpty(settings.OutputFolder))
+            {
+                if (GUILayout.Button("×", GUILayout.Width(22), GUILayout.Height(18)))
+                {
+                    BakeStore.Dispatch(new UpdateOutputSettingsAction(
+                        settings.With(outputFolder: "")));
+                    GUIUtility.ExitGUI();
+                }
+            }
+            GUILayout.EndHorizontal();
+
+            // Overwrite toggle
+            bool overwrite = EditorGUILayout.Toggle(
+                new GUIContent("Overwrite Existing",
+                    "If disabled, duplicate filenames are resolved by appending a number (e.g. 'BakedAO_Mesh 1.png')."),
+                settings.OverwriteExisting);
+
+            if (EditorGUI.EndChangeCheck())
+            {
+                BakeStore.Dispatch(new UpdateOutputSettingsAction(
+                    settings.With(
+                        outputResolution: newResolution,
+                        overwriteExisting: overwrite)));
+            }
         }
 
         private void DrawSeparator()

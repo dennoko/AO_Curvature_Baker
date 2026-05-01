@@ -5,6 +5,37 @@ namespace DennokoWorks.Tool.AOBaker
 {
     public enum CurvatureMode { Mean = 0, Gaussian = 1 }
 
+    public class OutputSettings
+    {
+        /// <summary>Output texture resolution (128, 256, 512, 1024, 2048, 4096).</summary>
+        public int    OutputResolution { get; }
+        /// <summary>Asset-relative output folder path (e.g. "Assets/Textures/BakedAO").</summary>
+        public string OutputFolder     { get; }
+        /// <summary>If true, overwrite existing files with the same name.</summary>
+        public bool   OverwriteExisting { get; }
+
+        public OutputSettings(
+            int    outputResolution  = 1024,
+            string outputFolder      = "",
+            bool   overwriteExisting = false)
+        {
+            OutputResolution  = outputResolution;
+            OutputFolder      = outputFolder ?? "";
+            OverwriteExisting = overwriteExisting;
+        }
+
+        public OutputSettings With(
+            int?    outputResolution  = null,
+            string  outputFolder      = null,
+            bool?   overwriteExisting = null)
+        {
+            return new OutputSettings(
+                outputResolution  ?? OutputResolution,
+                outputFolder      ?? OutputFolder,
+                overwriteExisting ?? OverwriteExisting);
+        }
+    }
+
     public class CurvatureSettings
     {
         public bool          BakeEnabled { get; }
@@ -110,6 +141,7 @@ namespace DennokoWorks.Tool.AOBaker
         public IReadOnlyList<GameObject> OccluderMeshes    { get; }
         public AOSettings                AOSettings         { get; }
         public CurvatureSettings         CurvatureSettings  { get; }
+        public OutputSettings            OutputSettings     { get; }
         public BakeStatus                Status             { get; }
         public float                     Progress           { get; }
         public string                    StatusMessage      { get; }
@@ -119,6 +151,7 @@ namespace DennokoWorks.Tool.AOBaker
             IReadOnlyList<GameObject> occluderMeshes   = null,
             AOSettings               aoSettings        = null,
             CurvatureSettings        curvatureSettings = null,
+            OutputSettings           outputSettings    = null,
             BakeStatus               status            = BakeStatus.None,
             float                    progress          = 0f,
             string                   statusMessage     = "Ready")
@@ -127,6 +160,7 @@ namespace DennokoWorks.Tool.AOBaker
             OccluderMeshes    = occluderMeshes   ?? new List<GameObject>().AsReadOnly();
             AOSettings        = aoSettings       ?? new AOSettings();
             CurvatureSettings = curvatureSettings ?? new CurvatureSettings();
+            OutputSettings    = outputSettings   ?? new OutputSettings();
             Status            = status;
             Progress          = progress;
             StatusMessage     = statusMessage;
@@ -137,6 +171,7 @@ namespace DennokoWorks.Tool.AOBaker
             IReadOnlyList<GameObject> occluderMeshes   = null,
             AOSettings               aoSettings        = null,
             CurvatureSettings        curvatureSettings = null,
+            OutputSettings           outputSettings    = null,
             BakeStatus?              status            = null,
             float?                   progress          = null,
             string                   statusMessage     = null)
@@ -146,6 +181,7 @@ namespace DennokoWorks.Tool.AOBaker
                 occluderMeshes    ?? OccluderMeshes,
                 aoSettings        ?? AOSettings,
                 curvatureSettings ?? CurvatureSettings,
+                outputSettings    ?? OutputSettings,
                 status            ?? Status,
                 progress          ?? Progress,
                 statusMessage     ?? StatusMessage

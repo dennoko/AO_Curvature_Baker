@@ -67,4 +67,13 @@ namespace DennokoWorks.Tool.AOBaker
             ErrorMessage = errorMessage;
         }
     }
+
+    public class UpdateOutputSettingsAction : IAction
+    {
+        public OutputSettings Settings { get; }
+        public UpdateOutputSettingsAction(OutputSettings settings)
+        {
+            Settings = settings;
+        }
+    }
 }

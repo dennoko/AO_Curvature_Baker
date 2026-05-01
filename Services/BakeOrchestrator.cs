@@ -20,13 +20,15 @@ namespace DennokoWorks.Tool.AOBaker
         private readonly IAOBaker                 _aoBaker          = new AOBaker();
         private readonly ICurvatureBaker          _curvatureBaker   = new CurvatureBaker();
 
+        private static string L(string key, params object[] args) => string.Format(LocalizationManager.Get(key), args);
+
         public async Task ExecuteBakePipelineAsync(BakeState state)
         {
             try
             {
                 if (state.TargetMeshes.Count == 0)
                 {
-                    BakeStore.Dispatch(new BakeErrorAction("No target meshes registered."));
+                    BakeStore.Dispatch(new BakeErrorAction(L("Msg_NoTargetMeshes")));
                     return;
                 }
 
@@ -49,7 +51,7 @@ namespace DennokoWorks.Tool.AOBaker
                     string label     = $"[{i + 1}/{state.TargetMeshes.Count}]";
 
                     Dispatch(BakeStatus.Baking, baseRatio + perMesh * 0.02f,
-                        $"{label} Preparing '{go.name}'...");
+                        $"{label} {L("Msg_Preparing", go.name)}");
 
                     // Resolve output folder for this mesh
                     string outputFolder = ResolveOutputFolder(go, outputSettings.OutputFolder);
@@ -60,7 +62,7 @@ namespace DennokoWorks.Tool.AOBaker
                     if (mesh == null)
                     {
                         BakeStore.Dispatch(new BakeErrorAction(
-                            $"No mesh found on '{go.name}'. Attach a MeshFilter or SkinnedMeshRenderer."));
+                            $"{label} {L("Msg_NoMeshFound", go.name)}"));
                         continue;
                     }
 
@@ -74,7 +76,7 @@ namespace DennokoWorks.Tool.AOBaker
 
                         // Build occlusion geometry: target mesh + occluder meshes
                         Dispatch(BakeStatus.Baking, baseRatio + perMesh * 0.05f,
-                            $"{label} Building occlusion geometry...");
+                            $"{label} {L("Msg_BuildingOcclusion")}");
 
                         Transform targetTransform = go.transform;
                         occlusionGeometry = _occlusionBuilder.Build(
@@ -103,7 +105,7 @@ namespace DennokoWorks.Tool.AOBaker
                             }
 
                             Dispatch(BakeStatus.Baking, baseRatio + perMesh * (aoBase * 0.97f),
-                                $"{label} Saving AO texture for '{go.name}'...");
+                                $"{label} {L("Msg_SavingAO", go.name)}");
                             await Task.Yield();
 
                             SaveTexture(aoResult, go.name, "BakedAO", outputFolder,
@@ -125,7 +127,7 @@ namespace DennokoWorks.Tool.AOBaker
                                 context, state.CurvatureSettings, curvProgress);
 
                             Dispatch(BakeStatus.Baking, baseRatio + perMesh * 0.97f,
-                                $"{label} Saving curvature texture for '{go.name}'...");
+                                $"{label} {L("Msg_SavingCurvature", go.name)}");
                             await Task.Yield();
 
                             SaveTexture(curvatureResult, go.name, "BakedCurvature", outputFolder,
@@ -135,7 +137,7 @@ namespace DennokoWorks.Tool.AOBaker
                     catch (Exception meshEx)
                     {
                         BakeStore.Dispatch(new BakeErrorAction(
-                            $"{label} Skipped '{go.name}': {meshEx.Message}"));
+                            L("Msg_Skipped", go.name, meshEx.Message)));
                     }
                     finally
                     {

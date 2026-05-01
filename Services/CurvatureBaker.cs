@@ -12,6 +12,8 @@ namespace DennokoWorks.Tool.AOBaker
         private const string CurvatureShaderPath =
             "Assets/Editor/AO_Curvature_Baker/Shaders/Compute/Curvature.compute";
 
+        private static string L(string key, params object[] args) => string.Format(LocalizationManager.Get(key), args);
+
         public async Task<RenderTexture> ComputeCurvatureAsync(
             BakeContext context,
             CurvatureSettings settings,
@@ -46,7 +48,7 @@ namespace DennokoWorks.Tool.AOBaker
             // the curvature map look per-polygon instead of smoothly varying.
             // Welding duplicate positions and averaging their face-normals gives a smooth
             // normal field that reflects the geometric shape, independent of render topology.
-            progress?.Report((0.02f, "Computing welded smooth normals..."));
+            progress?.Report((0.02f, L("Msg_WeldedNormals")));
             await Task.Yield();
             var smoothNormals      = ComputeWeldedSmoothNormals(context.SourceMesh);
             var smoothNormalBuffer = new ComputeBuffer(smoothNormals.Length, 3 * sizeof(float));
@@ -55,7 +57,7 @@ namespace DennokoWorks.Tool.AOBaker
             try
             {
                 // --- Pass 1: Rasterize UV ---
-                progress?.Report((0.05f, "Rasterizing UV space..."));
+                progress?.Report((0.05f, L("Msg_RasterizingUV")));
                 await Task.Yield();
 
                 shader.SetBuffer(rasterKernel, "_Vertices",     context.VertexBuffer);
@@ -70,7 +72,7 @@ namespace DennokoWorks.Tool.AOBaker
                 AsyncGPUReadback.WaitAllRequests();
 
                 // --- Pass 2: Compute Curvature ---
-                progress?.Report((0.55f, "Computing curvature..."));
+                progress?.Report((0.55f, L("Msg_ComputingCurvature")));
                 await Task.Yield();
 
                 shader.SetTexture(curvatureKernel, "_PositionMap",     positionRT);
@@ -91,7 +93,7 @@ namespace DennokoWorks.Tool.AOBaker
             positionRT.Release();
             normalRT.Release();
 
-            progress?.Report((0.97f, "Finalizing curvature output..."));
+            progress?.Report((0.97f, L("Msg_FinalizingCurvature")));
             await Task.Yield();
 
             return curvatureRT;

@@ -13,6 +13,8 @@ namespace DennokoWorks.Tool.AOBaker
         private const string DenoiseShaderPath =
             "Assets/Editor/AO_Curvature_Baker/Shaders/Compute/Denoise.compute";
 
+        private static string L(string key, params object[] args) => string.Format(LocalizationManager.Get(key), args);
+
         public async Task<RenderTexture> ComputeAOAsync(
             BakeContext context,
             OcclusionGeometry occlusionGeometry,
@@ -46,7 +48,7 @@ namespace DennokoWorks.Tool.AOBaker
             RenderTexture.active = prevActive;
 
             // --- Pass 1: Rasterize UV ---
-            progress?.Report((0.05f, "Rasterizing UV space..."));
+            progress?.Report((0.05f, L("Msg_RasterizingUV")));
             await Task.Yield();
 
             int threadGroupsXY = Mathf.CeilToInt(res / 8f);
@@ -62,7 +64,7 @@ namespace DennokoWorks.Tool.AOBaker
             AsyncGPUReadback.WaitAllRequests();
 
             // --- Pass 2: Bind occlusion geometry and BVH ---
-            progress?.Report((0.12f, "Binding occlusion geometry..."));
+            progress?.Report((0.12f, L("Msg_BuildingOcclusion")));
             await Task.Yield();
 
             aoShader.SetBuffer(aoKernel, "_OccVertices",  occlusionGeometry.VertexBuffer);
@@ -103,7 +105,7 @@ namespace DennokoWorks.Tool.AOBaker
                         AsyncGPUReadback.WaitAllRequests();
                         float tp = (float)tilesDone / totalTiles;
                         progress?.Report((0.20f + 0.60f * tp,
-                            $"Tracing AO ({tp:P0})... [low-resource]"));
+                            L("Msg_TracingAOLowRes", tp.ToString("P0"))));
                         await Task.Yield();
                     }
                 }
@@ -112,7 +114,7 @@ namespace DennokoWorks.Tool.AOBaker
                 {
                     AsyncGPUReadback.WaitAllRequests();
                     float rp = (float)(ty + 1) / tilesPerRow;
-                    progress?.Report((0.20f + 0.60f * rp, $"Tracing AO ({rp:P0})..."));
+                    progress?.Report((0.20f + 0.60f * rp, L("Msg_TracingAO", rp.ToString("P0"))));
                     await Task.Yield();
                 }
             }
@@ -131,7 +133,7 @@ namespace DennokoWorks.Tool.AOBaker
             positionRT.Release();
             normalRT.Release();
 
-            progress?.Report((0.97f, "Finalizing output..."));
+            progress?.Report((0.97f, L("Msg_Finalizing")));
             await Task.Yield();
 
             return finalRT;
@@ -176,7 +178,7 @@ namespace DennokoWorks.Tool.AOBaker
             denoiseShader.Dispatch(kVar, tg, tg, 1);
             AsyncGPUReadback.WaitAllRequests();
 
-            progress?.Report((0.82f, "Denoising (variance estimation)..."));
+            progress?.Report((0.82f, L("Msg_DenoisingVar")));
             await Task.Yield();
 
             // A-trous iterations
@@ -198,7 +200,7 @@ namespace DennokoWorks.Tool.AOBaker
                 AsyncGPUReadback.WaitAllRequests();
 
                 float dp = (float)(i + 1) / iters;
-                progress?.Report((0.84f + 0.10f * dp, $"Denoising pass {i + 1}/{iters}..."));
+                progress?.Report((0.84f + 0.10f * dp, L("Msg_DenoisingPass", i + 1, iters)));
                 await Task.Yield();
 
                 // Swap ping-pong

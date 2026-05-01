@@ -10,6 +10,7 @@ namespace DennokoWorks.Tool.AOBaker
         private string     _statusMessage  = "Ready";
         private StatusType _statusType     = StatusType.Info;
         private double     _statusResetTime = -1.0;
+        private string L(string key) => LocalizationManager.Get(key);
 
         private GUIStyle actionButtonStyle;
         private Vector2 _scrollPosition;
@@ -25,6 +26,7 @@ namespace DennokoWorks.Tool.AOBaker
 
         private void OnEnable()
         {
+            LocalizationManager.Initialize();
             BakeStore.OnStateChanged += RepaintWindowOnStateChange;
             UpdateStatusFromState();
         }
@@ -47,7 +49,7 @@ namespace DennokoWorks.Tool.AOBaker
             if (state.Status == BakeStatus.Completed) type = StatusType.Success;
             if (state.Status == BakeStatus.Error) type = StatusType.Error;
 
-            _statusMessage = state.StatusMessage;
+            _statusMessage = L(state.StatusMessage);
             _statusType = type;
             
             // Auto reset for success based on theme defaults
@@ -65,7 +67,7 @@ namespace DennokoWorks.Tool.AOBaker
         {
             if (_statusResetTime > 0 && EditorApplication.timeSinceStartup > _statusResetTime)
             {
-                _statusMessage   = "Ready";
+                _statusMessage   = L("Status_Ready");
                 _statusType      = StatusType.Info;
                 _statusResetTime = -1.0;
             }
@@ -108,6 +110,10 @@ namespace DennokoWorks.Tool.AOBaker
             GUILayout.Space(6);
             GUILayout.Label("AO / Curvature Baker", UniTexTheme.TitleStyle);
             GUILayout.FlexibleSpace();
+
+            // Language Switch
+            DrawLanguageSwitch();
+
             GUILayout.Space(6);
             GUILayout.EndHorizontal();
 
@@ -115,29 +121,57 @@ namespace DennokoWorks.Tool.AOBaker
             DrawSeparator();
         }
 
+        private void DrawLanguageSwitch()
+        {
+            var current = LocalizationManager.CurrentLanguage;
+            
+            EditorGUI.BeginChangeCheck();
+            
+            GUILayout.BeginHorizontal();
+            
+            bool isJa = GUILayout.Toggle(current == Language.Japanese, "JA", UniTexTheme.MiniButtonLeftStyle, GUILayout.Width(30));
+            bool isEn = GUILayout.Toggle(current == Language.English, "EN", UniTexTheme.MiniButtonRightStyle, GUILayout.Width(30));
+            
+            if (isJa && current != Language.Japanese)
+            {
+                LocalizationManager.CurrentLanguage = Language.Japanese;
+            }
+            else if (isEn && current != Language.English)
+            {
+                LocalizationManager.CurrentLanguage = Language.English;
+            }
+            
+            if (EditorGUI.EndChangeCheck())
+            {
+                Repaint();
+            }
+            
+            GUILayout.EndHorizontal();
+        }
+
         private void DrawSettingsArea(BakeState state)
         {
             GUILayout.BeginVertical();
 
-            DrawSection("TARGET", () =>
+            DrawSection(L("Section_Target"), () =>
             {
                 DrawTargetMeshSlots(state);
             });
 
-            DrawSection("OCCLUDER MESHES", () =>
+            DrawSection(L("Section_Occluder"), () =>
             {
                 DrawOccluderMeshSlots(state);
             });
             
-            DrawSection("BASIC AO SETTINGS", () =>
+            DrawSection(L("Section_BasicAO"), () =>
             {
                 EditorGUI.BeginChangeCheck();
 
-                bool useSelf   = EditorGUILayout.Toggle("Self Occlusion",   state.AOSettings.UseSelfOcclusion);
-                bool useMutual = EditorGUILayout.Toggle("Mutual Occlusion", state.AOSettings.UseMutualOcclusion);
+                bool useSelf   = EditorGUILayout.Toggle(L("Label_SelfOcclusion"),   state.AOSettings.UseSelfOcclusion);
+                bool useMutual = EditorGUILayout.Toggle(L("Label_MutualOcclusion"), state.AOSettings.UseMutualOcclusion);
                 bool lowRes    = EditorGUILayout.Toggle(
-                    new GUIContent("Low Resource Mode",
-                        "Reduces GPU load by using smaller dispatch tiles and syncing after every tile.\nBake time will be significantly longer."),
+                    new GUIContent(L("Label_LowResource"),
+                        L("Tooltip_LowResource")),
                     state.AOSettings.LowResourceMode);
 
                 if (EditorGUI.EndChangeCheck())
@@ -149,17 +183,17 @@ namespace DennokoWorks.Tool.AOBaker
                 if (state.AOSettings.LowResourceMode)
                 {
                     EditorGUILayout.HelpBox(
-                        "Low Resource Mode: GPU dispatch tile size is fixed at 16 px and the GPU is flushed after every tile. Bake time will be significantly longer.",
+                        L("Help_LowResource"),
                         MessageType.Info);
                 }
             });
 
-            DrawToggleSection("ADVANCED SETTINGS", _showAdvancedSettings, val => _showAdvancedSettings = val, () =>
+            DrawToggleSection(L("Section_Advanced"), _showAdvancedSettings, val => _showAdvancedSettings = val, () =>
             {
                 EditorGUI.BeginChangeCheck();
 
-                int rayCount = EditorGUILayout.IntSlider("Ray Count", state.AOSettings.RayCount, 16, 512);
-                float maxDistance = EditorGUILayout.Slider("Max Distance", state.AOSettings.MaxDistance, 0.1f, 100f);
+                int rayCount = EditorGUILayout.IntSlider(L("Label_RayCount"), state.AOSettings.RayCount, 16, 512);
+                float maxDistance = EditorGUILayout.Slider(L("Label_MaxDistance"), state.AOSettings.MaxDistance, 0.1f, 100f);
 
                 if (EditorGUI.EndChangeCheck())
                 {
@@ -170,23 +204,23 @@ namespace DennokoWorks.Tool.AOBaker
                 BakeStore.Dispatch(new UpdateAOSettingsAction(new AOSettings()));
             });
 
-            DrawToggleSection("SVGF DENOISING", state.AOSettings.DenoiseEnabled, 
+            DrawToggleSection(L("Section_SVGF"), state.AOSettings.DenoiseEnabled, 
                 val => BakeStore.Dispatch(new UpdateAOSettingsAction(state.AOSettings.With(denoiseEnabled: val))),
                 () =>
             {
                 EditorGUI.BeginChangeCheck();
 
                 int   iterations = EditorGUILayout.IntSlider(
-                    new GUIContent("Iterations", "Number of a-trous wavelet filter passes. Each pass doubles the effective kernel radius."),
+                    new GUIContent(L("Label_Iterations"), L("Tooltip_Iterations")),
                     state.AOSettings.DenoiseIterations, 1, 5);
                 float sigmaPos   = EditorGUILayout.Slider(
-                    new GUIContent("Sigma Position", "Position edge-stopping threshold (world units). Lower = sharper boundaries."),
+                    new GUIContent(L("Label_SigmaPos"), L("Tooltip_SigmaPos")),
                     state.AOSettings.DenoiseSigmaPos, 0.01f, 5f);
                 float sigmaNrm   = EditorGUILayout.Slider(
-                    new GUIContent("Sigma Normal", "Normal edge-stopping exponent. Higher = harder normal edges."),
+                    new GUIContent(L("Label_SigmaNrm"), L("Tooltip_SigmaNrm")),
                     state.AOSettings.DenoiseSigmaNrm, 1f, 256f);
                 float sigmaLum   = EditorGUILayout.Slider(
-                    new GUIContent("Sigma Luminance", "Luminance edge-stopping scale. Lower = preserve more AO contrast."),
+                    new GUIContent(L("Label_SigmaLum"), L("Tooltip_SigmaLum")),
                     state.AOSettings.DenoiseSigmaLum, 0.1f, 10f);
 
                 if (EditorGUI.EndChangeCheck())
@@ -207,24 +241,23 @@ namespace DennokoWorks.Tool.AOBaker
                     denoiseSigmaLum:   4.0f)));
             });
 
-            DrawToggleSection("CURVATURE MAP", state.CurvatureSettings.BakeEnabled, 
+            DrawToggleSection(L("Section_Curvature"), state.CurvatureSettings.BakeEnabled, 
                 val => BakeStore.Dispatch(new UpdateCurvatureSettingsAction(state.CurvatureSettings.With(bakeEnabled: val))),
                 () =>
             {
                 EditorGUI.BeginChangeCheck();
 
                 CurvatureMode mode = (CurvatureMode)EditorGUILayout.EnumPopup(
-                    new GUIContent("Mode",
-                        "Mean Curvature: edge wear mask (smooth normals). " +
-                        "Gaussian Curvature: saddle/dome detection."),
+                    new GUIContent(L("Label_Mode"),
+                        L("Tooltip_Mode")),
                     state.CurvatureSettings.Mode);
 
                 float strength = EditorGUILayout.Slider(
-                    new GUIContent("Strength", "Scales the curvature value before remapping. Higher = more contrast."),
+                    new GUIContent(L("Label_Strength"), L("Tooltip_Strength")),
                     state.CurvatureSettings.Strength, 0.01f, 10f);
 
                 float bias = EditorGUILayout.Slider(
-                    new GUIContent("Bias", "Output neutral point. 0.5 = flat surface maps to 50% gray."),
+                    new GUIContent(L("Label_Bias"), L("Tooltip_Bias")),
                     state.CurvatureSettings.Bias, 0f, 1f);
 
                 if (EditorGUI.EndChangeCheck())
@@ -240,7 +273,7 @@ namespace DennokoWorks.Tool.AOBaker
                 BakeStore.Dispatch(new UpdateCurvatureSettingsAction(new CurvatureSettings()));
             });
 
-            DrawSection("OUTPUT SETTINGS", () =>
+            DrawSection(L("Section_Output"), () =>
             {
                 DrawOutputSettings(state);
             });
@@ -251,7 +284,7 @@ namespace DennokoWorks.Tool.AOBaker
         private void DrawProgressArea(BakeState state)
         {
             GUILayout.BeginVertical(UniTexTheme.CardStyle);
-            GUILayout.Label("BAKING IN PROGRESS...", UniTexTheme.SectionHeaderStyle);
+            GUILayout.Label(L("Status_Baking"), UniTexTheme.SectionHeaderStyle);
             DrawSeparator();
 
             GUILayout.Label(state.StatusMessage, UniTexTheme.SecondaryTextStyle);
@@ -267,7 +300,7 @@ namespace DennokoWorks.Tool.AOBaker
             GUILayout.BeginVertical(UniTexTheme.CardStyle);
 
             GUILayout.BeginHorizontal();
-            GUILayout.Label("OUTPUT: Ready", UniTexTheme.CaptionStyle);
+            GUILayout.Label(L("Label_OutputReady"), UniTexTheme.CaptionStyle);
             GUILayout.FlexibleSpace();
             GUILayout.EndHorizontal();
 
@@ -275,7 +308,7 @@ namespace DennokoWorks.Tool.AOBaker
 
             using (new EditorGUI.DisabledGroupScope(state.TargetMeshes.Count == 0))
             {
-                if (GUILayout.Button("Bake Now", actionButtonStyle))
+                if (GUILayout.Button(L("Button_BakeNow"), actionButtonStyle))
                 {
                     var snapshot = BakeStore.State;
                     BakeStore.Dispatch(new StartBakeAction());
@@ -385,7 +418,7 @@ namespace DennokoWorks.Tool.AOBaker
             // Empty slot for adding a new target via drag-and-drop
             EditorGUI.BeginChangeCheck();
             var addObj = (GameObject)EditorGUILayout.ObjectField(
-                "Add Target", null, typeof(GameObject), true);
+                L("Label_AddTarget"), null, typeof(GameObject), true);
             if (EditorGUI.EndChangeCheck() && addObj != null)
             {
                 if (!HasMeshComponent(addObj))
@@ -449,7 +482,7 @@ namespace DennokoWorks.Tool.AOBaker
             // Empty slot for adding a new occluder via drag-and-drop
             EditorGUI.BeginChangeCheck();
             var addObj = (GameObject)EditorGUILayout.ObjectField(
-                "Add Occluder", null, typeof(GameObject), true);
+                L("Label_AddOccluder"), null, typeof(GameObject), true);
             if (EditorGUI.EndChangeCheck() && addObj != null)
             {
                 if (!HasMeshComponent(addObj))
@@ -468,7 +501,7 @@ namespace DennokoWorks.Tool.AOBaker
             if (list.Count > 1)
             {
                 EditorGUILayout.Space(2);
-                if (GUILayout.Button("Clear All", UniTexTheme.SecondaryButtonStyle))
+                if (GUILayout.Button(L("Button_ClearAll"), UniTexTheme.SecondaryButtonStyle))
                 {
                     BakeStore.Dispatch(new SetOccluderMeshesAction(new List<GameObject>()));
                 }
@@ -495,8 +528,8 @@ namespace DennokoWorks.Tool.AOBaker
             int currentIndex = System.Array.IndexOf(ResolutionOptions, settings.OutputResolution);
             if (currentIndex < 0) currentIndex = 3; // fallback to 1024
             int newIndex = EditorGUILayout.Popup(
-                new GUIContent("Output Resolution",
-                    "Final texture resolution. AO is sampled at 1024 internally, then scaled to this size."),
+                new GUIContent(L("Label_OutputRes"),
+                    L("Tooltip_OutputRes")),
                 currentIndex, ResolutionLabels);
             int newResolution = ResolutionOptions[newIndex];
 
@@ -504,8 +537,8 @@ namespace DennokoWorks.Tool.AOBaker
             GUILayout.BeginHorizontal();
             string displayFolder = string.IsNullOrEmpty(settings.OutputFolder) ? "(Auto)" : settings.OutputFolder;
             EditorGUILayout.TextField(
-                new GUIContent("Output Folder",
-                    "Leave empty for auto-detection. Auto: uses main texture path + BakedAO/, or Assets/GeneratedTextures."),
+                new GUIContent(L("Label_OutputFolder"),
+                    L("Tooltip_OutputFolder")),
                 displayFolder);
 
             if (GUILayout.Button("...", GUILayout.Width(30)))
@@ -538,39 +571,37 @@ namespace DennokoWorks.Tool.AOBaker
 
             // Overwrite toggle
             bool overwrite = EditorGUILayout.Toggle(
-                new GUIContent("Overwrite Existing",
-                    "If disabled, duplicate filenames are resolved by appending a number (e.g. 'BakedAO_Mesh 1.png')."),
+                new GUIContent(L("Label_Overwrite"),
+                    L("Tooltip_Overwrite")),
                 settings.OverwriteExisting);
 
             EditorGUILayout.Space(4);
-            EditorGUILayout.LabelField("Post-Processing", EditorStyles.boldLabel);
+            EditorGUILayout.LabelField(L("Label_PostProcess"), EditorStyles.boldLabel);
 
             // Dilation
             int dilation = EditorGUILayout.IntSlider(
-                new GUIContent("UV Island Dilation",
-                    "Expands the baked AO outward from UV island edges by this many pixels. " +
-                    "Reduces seam artefacts caused by bilinear filtering at island borders."),
+                new GUIContent(L("Label_Dilation"),
+                    L("Tooltip_Dilation")),
                 settings.DilationPixels, 0, 32);
 
             // Shadow colour
             Color shadowColor = EditorGUILayout.ColorField(
-                new GUIContent("Shadow Color",
-                    "Color of fully occluded (shadow) areas. " +
-                    "Fully lit areas are always white. Default black gives standard greyscale AO."),
+                new GUIContent(L("Label_ShadowColor"),
+                    L("Tooltip_ShadowColor")),
                 settings.ShadowColor);
 
             // Gaussian blur
             bool blurEnabled = EditorGUILayout.Toggle(
-                new GUIContent("Gaussian Blur",
-                    "Applies a 9x9 Gaussian blur to the AO output after baking."),
+                new GUIContent(L("Label_GaussianBlur"),
+                    L("Tooltip_GaussianBlur")),
                 settings.GaussianBlurEnabled);
 
             int blurPasses;
             using (new EditorGUI.DisabledGroupScope(!blurEnabled))
             {
                 blurPasses = EditorGUILayout.IntSlider(
-                    new GUIContent("  Blur Passes",
-                        "Number of 9x9 Gaussian blur passes. More passes produce a stronger, wider blur."),
+                    new GUIContent(L("Label_BlurPasses"),
+                        L("Tooltip_BlurPasses")),
                     settings.GaussianBlurPasses, 1, 10);
             }
 

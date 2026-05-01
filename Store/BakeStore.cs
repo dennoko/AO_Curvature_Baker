@@ -35,16 +35,16 @@ namespace DennokoWorks.Tool.AOBaker
                 case UpdateOutputSettingsAction a:
                     return state.With(outputSettings: a.Settings);
                 case StartBakeAction _:
-                    return state.With(status: BakeStatus.Baking, progress: 0f, statusMessage: "Baking started...");
+                    return state.With(status: BakeStatus.Baking, progress: 0f, statusMessage: "Status_BakingStarted");
                     
                 case UpdateProgressAction a:
                     return state.With(status: a.Status, progress: a.Progress, statusMessage: a.Message);
                     
                 case BakeCompletedAction _:
-                    return state.With(status: BakeStatus.Completed, progress: 1f, statusMessage: "Bake Completed Successfully.");
+                    return state.With(status: BakeStatus.Completed, progress: 1f, statusMessage: "Status_CompletedSuccess");
                     
                 case BakeErrorAction a:
-                    return state.With(status: BakeStatus.Error, progress: 0f, statusMessage: $"Error: {a.ErrorMessage}");
+                    return state.With(status: BakeStatus.Error, progress: 0f, statusMessage: a.ErrorMessage); // ErrorMessage is already localized or a key
                     
                 default:
                     return state;

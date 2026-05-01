@@ -226,7 +226,8 @@ void TraceAO(uint3 id : SV_DispatchThreadID)
 
     if (posData.w < 0.5)
     {
-        _AOOutput[texCoord] = float4(1, 1, 1, 1);
+        // alpha=0 marks background (outside UV islands) for the dilation pass
+        _AOOutput[texCoord] = float4(1, 1, 1, 0);
         return;
     }
 

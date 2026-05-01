@@ -8,31 +8,55 @@ namespace DennokoWorks.Tool.AOBaker
     public class OutputSettings
     {
         /// <summary>Output texture resolution (128, 256, 512, 1024, 2048, 4096).</summary>
-        public int    OutputResolution { get; }
+        public int    OutputResolution  { get; }
         /// <summary>Asset-relative output folder path (e.g. "Assets/Textures/BakedAO").</summary>
-        public string OutputFolder     { get; }
+        public string OutputFolder      { get; }
         /// <summary>If true, overwrite existing files with the same name.</summary>
         public bool   OverwriteExisting { get; }
+        /// <summary>Pixels to expand the AO outward from UV island edges (0 = disabled).</summary>
+        public int    DilationPixels    { get; }
+        /// <summary>Color of fully occluded (shadow) areas. Defaults to black.</summary>
+        public Color  ShadowColor       { get; }
+        /// <summary>Apply a 9x9 Gaussian blur to the AO output.</summary>
+        public bool   GaussianBlurEnabled { get; }
+        /// <summary>Number of Gaussian blur passes (higher = stronger blur).</summary>
+        public int    GaussianBlurPasses  { get; }
 
         public OutputSettings(
-            int    outputResolution  = 1024,
-            string outputFolder      = "",
-            bool   overwriteExisting = false)
+            int    outputResolution    = 1024,
+            string outputFolder        = "",
+            bool   overwriteExisting   = false,
+            int    dilationPixels      = 8,
+            Color? shadowColor         = null,
+            bool   gaussianBlurEnabled = true,
+            int    gaussianBlurPasses  = 2)
         {
-            OutputResolution  = outputResolution;
-            OutputFolder      = outputFolder ?? "";
-            OverwriteExisting = overwriteExisting;
+            OutputResolution    = outputResolution;
+            OutputFolder        = outputFolder ?? "";
+            OverwriteExisting   = overwriteExisting;
+            DilationPixels      = Mathf.Clamp(dilationPixels, 0, 32);
+            ShadowColor         = shadowColor ?? Color.black;
+            GaussianBlurEnabled = gaussianBlurEnabled;
+            GaussianBlurPasses  = Mathf.Clamp(gaussianBlurPasses, 1, 10);
         }
 
         public OutputSettings With(
-            int?    outputResolution  = null,
-            string  outputFolder      = null,
-            bool?   overwriteExisting = null)
+            int?    outputResolution    = null,
+            string  outputFolder        = null,
+            bool?   overwriteExisting   = null,
+            int?    dilationPixels      = null,
+            Color?  shadowColor         = null,
+            bool?   gaussianBlurEnabled = null,
+            int?    gaussianBlurPasses  = null)
         {
             return new OutputSettings(
-                outputResolution  ?? OutputResolution,
-                outputFolder      ?? OutputFolder,
-                overwriteExisting ?? OverwriteExisting);
+                outputResolution    ?? OutputResolution,
+                outputFolder        ?? OutputFolder,
+                overwriteExisting   ?? OverwriteExisting,
+                dilationPixels      ?? DilationPixels,
+                shadowColor         ?? ShadowColor,
+                gaussianBlurEnabled ?? GaussianBlurEnabled,
+                gaussianBlurPasses  ?? GaussianBlurPasses);
         }
     }
 

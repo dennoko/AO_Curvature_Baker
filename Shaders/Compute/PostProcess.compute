@@ -1,0 +1,122 @@
+#pragma kernel Dilate
+#pragma kernel GaussianBlur
+#pragma kernel ApplyShadowColor
+#pragma target 5.0
+
+// _Input: source (alpha=0 means background/outside UV island, alpha=1 means valid)
+Texture2D<float4>   _Input;
+RWTexture2D<float4> _Output;
+
+int    _Resolution;
+int    _DilationRadius;
+float4 _ShadowColor;
+
+// 9-tap Gaussian weights (sigma=1.5), normalized so their sum equals 1.
+// Index i corresponds to tap offset (i - 4), i.e. offsets -4 .. +4.
+static const float GK[9] = {
+    0.00762, 0.03607, 0.10959, 0.21344,
+    0.26654,
+    0.21344, 0.10959, 0.03607, 0.00762
+};
+
+// ---------------------------------------------------------------------------
+// Kernel: Dilate
+// For each background pixel (alpha < 0.5), searches within _DilationRadius
+// for the nearest valid pixel and copies its colour.  Valid pixels pass through.
+// ---------------------------------------------------------------------------
+[numthreads(8, 8, 1)]
+void Dilate(uint3 id : SV_DispatchThreadID)
+{
+    if ((int)id.x >= _Resolution || (int)id.y >= _Resolution) return;
+
+    float4 center = _Input[int2(id.xy)];
+    if (center.a > 0.5)
+    {
+        _Output[id.xy] = center;
+        return;
+    }
+
+    float  bestDistSq = 1e30;
+    float3 bestColor  = float3(1, 1, 1);
+    bool   found      = false;
+
+    for (int dy = -_DilationRadius; dy <= _DilationRadius; dy++)
+    {
+        for (int dx = -_DilationRadius; dx <= _DilationRadius; dx++)
+        {
+            int2 pos = int2(id.xy) + int2(dx, dy);
+            if (pos.x < 0 || pos.x >= _Resolution || pos.y < 0 || pos.y >= _Resolution)
+                continue;
+
+            float4 s = _Input[pos];
+            if (s.a < 0.5) continue;
+
+            float distSq = float(dx * dx + dy * dy);
+            if (distSq < bestDistSq)
+            {
+                bestDistSq = distSq;
+                bestColor  = s.rgb;
+                found      = true;
+            }
+        }
+    }
+
+    _Output[id.xy] = found ? float4(bestColor, 1.0) : float4(1, 1, 1, 0);
+}
+
+// ---------------------------------------------------------------------------
+// Kernel: GaussianBlur
+// 9x9 separable Gaussian (sigma=1.5).  Background pixels (alpha<0.5) are
+// excluded from the weighted sum so they do not bleed into valid texels.
+// ---------------------------------------------------------------------------
+[numthreads(8, 8, 1)]
+void GaussianBlur(uint3 id : SV_DispatchThreadID)
+{
+    if ((int)id.x >= _Resolution || (int)id.y >= _Resolution) return;
+
+    float3 colorSum  = float3(0, 0, 0);
+    float  weightSum = 0.0;
+
+    for (int dy = -4; dy <= 4; dy++)
+    {
+        for (int dx = -4; dx <= 4; dx++)
+        {
+            int2 pos = clamp(int2(id.xy) + int2(dx, dy),
+                             int2(0, 0), int2(_Resolution - 1, _Resolution - 1));
+            float4 s = _Input[pos];
+            if (s.a < 0.5) continue;
+
+            float w   = GK[dy + 4] * GK[dx + 4];
+            colorSum  += s.rgb * w;
+            weightSum += w;
+        }
+    }
+
+    float4 center = _Input[int2(id.xy)];
+    if (weightSum > 0.0)
+        _Output[id.xy] = float4(colorSum / weightSum, center.a);
+    else
+        _Output[id.xy] = center;
+}
+
+// ---------------------------------------------------------------------------
+// Kernel: ApplyShadowColor
+// Maps AO value: fully lit (ao=1) -> white, fully shadowed (ao=0) -> _ShadowColor.
+// Background pixels become white.  Alpha is always written as 1 (opaque).
+// ---------------------------------------------------------------------------
+[numthreads(8, 8, 1)]
+void ApplyShadowColor(uint3 id : SV_DispatchThreadID)
+{
+    if ((int)id.x >= _Resolution || (int)id.y >= _Resolution) return;
+
+    float4 color = _Input[int2(id.xy)];
+    float  ao    = color.r;
+    float3 finalRGB;
+
+    if (color.a > 0.5)
+        finalRGB = lerp(_ShadowColor.rgb, float3(1, 1, 1), ao);
+    else
+        finalRGB = float3(1, 1, 1); // background -> white
+
+    _Output[id.xy] = float4(finalRGB, 1.0);
+}

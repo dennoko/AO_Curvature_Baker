@@ -74,18 +74,24 @@ void RasterizeUV(uint3 id : SV_DispatchThreadID)
 // ---------------------------------------------------------------------------
 // Kernel 2 — ComputeCurvature
 //
-// Both modes use the first fundamental form (E, F, G) to normalise the
-// curvature estimate so that output is scale-invariant with respect to mesh
-// size and UV mapping density.
+// Both modes use the first and second fundamental forms to produce a
+// scale-invariant curvature estimate.
 //
-// Mode 0 — Mean curvature H via the normalised Laplace-Beltrami operator:
-//   E = |∂p/∂x|²,  F = ∂p/∂x·∂p/∂y,  G = |∂p/∂y|²
-//   L = n·∂²p/∂x², N = n·∂²p/∂y²
-//   H = −(G·L + E·N) / (2·(EG−F²))        (F·M cross term omitted)
+// The second fundamental form coefficients are computed via the Weingarten
+// equation  n·d²p/du² = −dn/du·dp/du  (from d/du(n·dp/du)=0, n⊥dp/du).
+// This uses FIRST derivatives of the normal map rather than SECOND derivatives
+// of the position map.  The position map is only C0 at every UV triangle edge
+// (piecewise-planar patches), so its second differences blow up at those edges,
+// producing wireframe artifacts.  Vertex normals are averaged across adjacent
+// faces, so the normal map is smooth at interior edges.
+//
+// Mode 0 — Mean curvature H:
+//   L = −dn/dx·dp/dx,  N = −dn/dy·dp/dy
+//   H = −(G·L + E·N) / (2·(EG−F²))   (F·M cross term omitted for ortho UVs)
 //   sign: H > 0 = convex, H < 0 = concave
 //
-// Mode 1 — Gaussian curvature K via the shape operator (8-neighbour stencil):
-//   M = n·∂²p/∂x∂y  (cross derivative from diagonal corners)
+// Mode 1 — Gaussian curvature K:
+//   M = −0.5·(dn/dx·dp/dy + dn/dy·dp/dx)  (symmetrised cross term)
 //   K = (L·N − M²) / (EG − F²)
 //
 // Output remapped:  curvature01 = saturate(value * Strength * 0.5 + Bias)
@@ -152,6 +158,19 @@ void ComputeCurvature(uint3 id : SV_DispatchThreadID)
 
     float3 nC = normalize(_NormalMap[center].xyz * 2.0 - 1.0);
 
+    // Seam-aware normal sampling — mirrors the same logic used for positions above.
+    // When a neighbour is missing or a seam, fall back to nC so the normal
+    // derivative in that direction evaluates to zero (neutral contribution).
+    float3 nRraw = (posR4.w > 0.5) ? normalize(_NormalMap[cR].xyz * 2.0 - 1.0) : nC;
+    float3 nLraw = (posL4.w > 0.5) ? normalize(_NormalMap[cL].xyz * 2.0 - 1.0) : nC;
+    float3 nUraw = (posU4.w > 0.5) ? normalize(_NormalMap[cU].xyz * 2.0 - 1.0) : nC;
+    float3 nDraw = (posD4.w > 0.5) ? normalize(_NormalMap[cD].xyz * 2.0 - 1.0) : nC;
+
+    float3 nR_s = (hasR && !seamR) ? nRraw : ((hasL && !seamL) ? 2.0*nC - nLraw : nC);
+    float3 nL_s = (hasL && !seamL) ? nLraw : ((hasR && !seamR) ? 2.0*nC - nRraw : nC);
+    float3 nU_s = (hasU && !seamU) ? nUraw : ((hasD && !seamD) ? 2.0*nC - nDraw : nC);
+    float3 nD_s = (hasD && !seamD) ? nDraw : ((hasU && !seamU) ? 2.0*nC - nUraw : nC);
+
     // First fundamental form (metric) — shared by both curvature modes
     float3 dp_dx = (posR - posL) * 0.5;
     float3 dp_dy = (posU - posD) * 0.5;
@@ -160,11 +179,18 @@ void ComputeCurvature(uint3 id : SV_DispatchThreadID)
     float G    = dot(dp_dy, dp_dy);
     float EGF2 = E * G - F * F;   // always >= 0 (Cauchy-Schwarz)
 
-    // Second fundamental form (x/y second derivatives; cross term computed below for mode 1)
-    float3 dp2_dx2 = posR + posL - 2.0 * posC;
-    float3 dp2_dy2 = posU + posD - 2.0 * posC;
-    float Lcoeff   = dot(nC, dp2_dx2);
-    float Ncoeff   = dot(nC, dp2_dy2);
+    // Second fundamental form via the Weingarten equation:
+    //   n · d²p/du² = −dn/du · dp/du   (from d/du(n·dp/du)=0 since n⊥dp/du)
+    //
+    // Using first derivatives of the normal map instead of second derivatives
+    // of the position map eliminates UV-triangle-edge artifacts.  The position
+    // map is C0-but-not-C1 at every UV triangle edge (causing the wireframe
+    // pattern with second differences), while the normal map is smooth at
+    // interior edges because vertex normals are averaged across adjacent faces.
+    float3 dn_dx = (nR_s - nL_s) * 0.5;
+    float3 dn_dy = (nU_s - nD_s) * 0.5;
+    float Lcoeff = -dot(dn_dx, dp_dx);
+    float Ncoeff = -dot(dn_dy, dp_dy);
 
     // Scale-relative epsilon: prevents division blow-up at degenerate UV texels
     // while remaining correct across all mesh/texture-resolution combinations.
@@ -176,43 +202,21 @@ void ComputeCurvature(uint3 id : SV_DispatchThreadID)
     if (_CurvatureMode == 0)
     {
         // Mean curvature H = -(G·L + E·N) / (2·(EG−F²))
+        // L and N are now computed via the Weingarten equation (see above),
+        // so the sign is already correct: H > 0 = convex.
         // The F·M cross term is omitted (≈ 0 for near-orthogonal UV maps).
-        // Without this normalization by the metric the raw Laplacian is O(h²)
-        // times too small, making the output uniformly gray.
         float H = -(G * Lcoeff + E * Ncoeff) / (2.0 * denom);
         curvature = H;
     }
     else
     {
         // Gaussian curvature K = (L·N − M²) / (EG−F²)
-        // The old absolute clamp (1e-8) was larger than EGF2 for typical
-        // mesh+texture combinations, suppressing K by 10–100×.
-        int2 cRU = clamp(int2(px + 1, py + 1), int2(0, 0), lim);
-        int2 cLU = clamp(int2(px - 1, py + 1), int2(0, 0), lim);
-        int2 cRD = clamp(int2(px + 1, py - 1), int2(0, 0), lim);
-        int2 cLD = clamp(int2(px - 1, py - 1), int2(0, 0), lim);
-
-        float4 posRU4 = _PositionMap[cRU];
-        float4 posLU4 = _PositionMap[cLU];
-        float4 posRD4 = _PositionMap[cRD];
-        float4 posLD4 = _PositionMap[cLD];
-
-        // Diagonal seam threshold: allow up to SeamRatio times the largest
-        // clean cardinal step (sqrt(2) diagonal ≈ 1.5× cardinal).
-        float cleanR = seamR ? 0.0 : dR;
-        float cleanL = seamL ? 0.0 : dL;
-        float cleanU = seamU ? 0.0 : dU;
-        float cleanD = seamD ? 0.0 : dD;
-        float diagThresh = max(max(cleanR, cleanL), max(cleanU, cleanD)) * SeamRatio * 1.5;
-        diagThresh = max(diagThresh, 1e-10);
-
-        float3 posRU = (posRU4.w > 0.5 && length(posRU4.xyz - posC) < diagThresh) ? posRU4.xyz : posC;
-        float3 posLU = (posLU4.w > 0.5 && length(posLU4.xyz - posC) < diagThresh) ? posLU4.xyz : posC;
-        float3 posRD = (posRD4.w > 0.5 && length(posRD4.xyz - posC) < diagThresh) ? posRD4.xyz : posC;
-        float3 posLD = (posLD4.w > 0.5 && length(posLD4.xyz - posC) < diagThresh) ? posLD4.xyz : posC;
-
-        float3 dp2_dxdy = (posRU - posLU - posRD + posLD) * 0.25;
-        float Mcoeff    = dot(nC, dp2_dxdy);
+        // Cross term M via the symmetrised Weingarten form:
+        //   M = −dn/du·dp/dv = −dn/dv·dp/du
+        //   Symmetrised: M ≈ −0.5·(dn/du·dp/dv + dn/dv·dp/du)
+        // This avoids diagonal-neighbour sampling (and its seam complexities)
+        // while remaining accurate for near-orthogonal UV maps (F ≈ 0).
+        float Mcoeff = -0.5 * (dot(dn_dx, dp_dy) + dot(dn_dy, dp_dx));
 
         float K = (Lcoeff * Ncoeff - Mcoeff * Mcoeff) / denom;
         curvature = K;

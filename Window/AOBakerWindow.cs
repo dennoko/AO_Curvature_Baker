@@ -15,8 +15,6 @@ namespace DennokoWorks.Tool.AOBaker
         private Vector2 _scrollPosition;
         
         private bool _showAdvancedSettings  = false;
-        private bool _showDenoiseSettings   = false;
-        private bool _showCurvatureSettings = false;
 
         [MenuItem("dennokoworks/AO Curvature Baker")]
         public static void ShowWindow()
@@ -156,7 +154,7 @@ namespace DennokoWorks.Tool.AOBaker
                 }
             });
 
-            DrawToggleSection("ADVANCED SETTINGS", ref _showAdvancedSettings, () =>
+            DrawToggleSection("ADVANCED SETTINGS", _showAdvancedSettings, val => _showAdvancedSettings = val, () =>
             {
                 EditorGUI.BeginChangeCheck();
 
@@ -172,11 +170,12 @@ namespace DennokoWorks.Tool.AOBaker
                 BakeStore.Dispatch(new UpdateAOSettingsAction(new AOSettings()));
             });
 
-            DrawToggleSection("SVGF DENOISING", ref _showDenoiseSettings, () =>
+            DrawToggleSection("SVGF DENOISING", state.AOSettings.DenoiseEnabled, 
+                val => BakeStore.Dispatch(new UpdateAOSettingsAction(state.AOSettings.With(denoiseEnabled: val))),
+                () =>
             {
                 EditorGUI.BeginChangeCheck();
 
-                bool  enabled    = EditorGUILayout.Toggle("Enable Denoising", state.AOSettings.DenoiseEnabled);
                 int   iterations = EditorGUILayout.IntSlider(
                     new GUIContent("Iterations", "Number of a-trous wavelet filter passes. Each pass doubles the effective kernel radius."),
                     state.AOSettings.DenoiseIterations, 1, 5);
@@ -193,7 +192,6 @@ namespace DennokoWorks.Tool.AOBaker
                 if (EditorGUI.EndChangeCheck())
                 {
                     BakeStore.Dispatch(new UpdateAOSettingsAction(state.AOSettings.With(
-                        denoiseEnabled:    enabled,
                         denoiseIterations: iterations,
                         denoiseSigmaPos:   sigmaPos,
                         denoiseSigmaNrm:   sigmaNrm,
@@ -209,13 +207,11 @@ namespace DennokoWorks.Tool.AOBaker
                     denoiseSigmaLum:   4.0f)));
             });
 
-            DrawToggleSection("CURVATURE MAP", ref _showCurvatureSettings, () =>
+            DrawToggleSection("CURVATURE MAP", state.CurvatureSettings.BakeEnabled, 
+                val => BakeStore.Dispatch(new UpdateCurvatureSettingsAction(state.CurvatureSettings.With(bakeEnabled: val))),
+                () =>
             {
                 EditorGUI.BeginChangeCheck();
-
-                bool bakeEnabled = EditorGUILayout.Toggle(
-                    new GUIContent("Bake Curvature", "Enable curvature map baking in addition to AO."),
-                    state.CurvatureSettings.BakeEnabled);
 
                 CurvatureMode mode = (CurvatureMode)EditorGUILayout.EnumPopup(
                     new GUIContent("Mode",
@@ -235,7 +231,6 @@ namespace DennokoWorks.Tool.AOBaker
                 {
                     BakeStore.Dispatch(new UpdateCurvatureSettingsAction(
                         state.CurvatureSettings.With(
-                            bakeEnabled: bakeEnabled,
                             mode:        mode,
                             strength:    strength,
                             bias:        bias)));
@@ -305,7 +300,7 @@ namespace DennokoWorks.Tool.AOBaker
             GUILayout.EndVertical();
         }
 
-        private void DrawToggleSection(string title, ref bool toggle, System.Action content, System.Action onReset = null)
+        private void DrawToggleSection(string title, bool toggle, System.Action<bool> onToggleChanged, System.Action content, System.Action onReset = null)
         {
             GUILayout.BeginVertical(UniTexTheme.CardStyle);
 
@@ -317,7 +312,7 @@ namespace DennokoWorks.Tool.AOBaker
             bool newToggle = EditorGUILayout.ToggleLeft(title, toggle, headerStyle, GUILayout.ExpandWidth(true));
             if (EditorGUI.EndChangeCheck())
             {
-                toggle = newToggle;
+                onToggleChanged?.Invoke(newToggle);
                 Repaint();
             }
 
@@ -547,12 +542,48 @@ namespace DennokoWorks.Tool.AOBaker
                     "If disabled, duplicate filenames are resolved by appending a number (e.g. 'BakedAO_Mesh 1.png')."),
                 settings.OverwriteExisting);
 
+            EditorGUILayout.Space(4);
+            EditorGUILayout.LabelField("Post-Processing", EditorStyles.boldLabel);
+
+            // Dilation
+            int dilation = EditorGUILayout.IntSlider(
+                new GUIContent("UV Island Dilation",
+                    "Expands the baked AO outward from UV island edges by this many pixels. " +
+                    "Reduces seam artefacts caused by bilinear filtering at island borders."),
+                settings.DilationPixels, 0, 32);
+
+            // Shadow colour
+            Color shadowColor = EditorGUILayout.ColorField(
+                new GUIContent("Shadow Color",
+                    "Color of fully occluded (shadow) areas. " +
+                    "Fully lit areas are always white. Default black gives standard greyscale AO."),
+                settings.ShadowColor);
+
+            // Gaussian blur
+            bool blurEnabled = EditorGUILayout.Toggle(
+                new GUIContent("Gaussian Blur",
+                    "Applies a 9x9 Gaussian blur to the AO output after baking."),
+                settings.GaussianBlurEnabled);
+
+            int blurPasses;
+            using (new EditorGUI.DisabledGroupScope(!blurEnabled))
+            {
+                blurPasses = EditorGUILayout.IntSlider(
+                    new GUIContent("  Blur Passes",
+                        "Number of 9x9 Gaussian blur passes. More passes produce a stronger, wider blur."),
+                    settings.GaussianBlurPasses, 1, 10);
+            }
+
             if (EditorGUI.EndChangeCheck())
             {
                 BakeStore.Dispatch(new UpdateOutputSettingsAction(
                     settings.With(
-                        outputResolution: newResolution,
-                        overwriteExisting: overwrite)));
+                        outputResolution:    newResolution,
+                        overwriteExisting:   overwrite,
+                        dilationPixels:      dilation,
+                        shadowColor:         shadowColor,
+                        gaussianBlurEnabled: blurEnabled,
+                        gaussianBlurPasses:  blurPasses)));
             }
         }
 

@@ -10,8 +10,10 @@ namespace DennokoWorks.Tool.AOBaker
 {
     public class BakeOrchestrator : IBakeOrchestrator
     {
-        private const int SamplingResolution      = 1024;
-        private const string FallbackOutputFolder = "Assets/GeneratedTextures";
+        private const int    SamplingResolution      = 1024;
+        private const string FallbackOutputFolder    = "Assets/GeneratedTextures";
+        private const string PostProcessShaderPath   =
+            "Assets/Editor/AO_Curvature_Baker/Shaders/Compute/PostProcess.compute";
 
         private readonly MeshFormatService        _meshFormat       = new MeshFormatService();
         private readonly OcclusionGeometryBuilder _occlusionBuilder = new OcclusionGeometryBuilder();
@@ -91,6 +93,14 @@ namespace DennokoWorks.Tool.AOBaker
 
                             aoResult = await _aoBaker.ComputeAOAsync(
                                 context, occlusionGeometry, state.AOSettings, innerProgress);
+
+                            // Post-processing: dilation, blur, shadow colour
+                            var processed = ApplyPostProcess(aoResult, outputSettings, SamplingResolution);
+                            if (!ReferenceEquals(processed, aoResult))
+                            {
+                                aoResult.Release();
+                                aoResult = processed;
+                            }
 
                             Dispatch(BakeStatus.Baking, baseRatio + perMesh * (aoBase * 0.97f),
                                 $"{label} Saving AO texture for '{go.name}'...");
@@ -249,6 +259,91 @@ namespace DennokoWorks.Tool.AOBaker
         }
 
         /// <summary>
+        /// Runs dilation, Gaussian blur, and shadow colour tint on the AO RenderTexture.
+        /// Returns a new RT when any step runs, otherwise returns the original unchanged.
+        /// The caller must release the original RT when the returned value differs.
+        /// </summary>
+        private static RenderTexture ApplyPostProcess(
+            RenderTexture src, OutputSettings settings, int resolution)
+        {
+            bool doDilate = settings.DilationPixels > 0;
+            bool doBlur   = settings.GaussianBlurEnabled && settings.GaussianBlurPasses > 0;
+            bool doColor  = settings.ShadowColor != Color.black;
+
+            if (!doDilate && !doBlur && !doColor)
+                return src;
+
+            var ppShader = AssetDatabase.LoadAssetAtPath<ComputeShader>(PostProcessShaderPath);
+            if (ppShader == null)
+            {
+                Debug.LogWarning($"[AO Baker] PostProcess shader not found at {PostProcessShaderPath}. Skipping post-processing.");
+                return src;
+            }
+
+            int tg = Mathf.CeilToInt(resolution / 8f);
+
+            RenderTexture rtA = CreateFloatRT(resolution);
+            RenderTexture rtB = CreateFloatRT(resolution);
+
+            // Copy source into rtA
+            Graphics.Blit(src, rtA);
+
+            // 1. Dilation
+            if (doDilate)
+            {
+                int k = ppShader.FindKernel("Dilate");
+                ppShader.SetInt("_Resolution",      resolution);
+                ppShader.SetInt("_DilationRadius",  settings.DilationPixels);
+                ppShader.SetTexture(k, "_Input",  rtA);
+                ppShader.SetTexture(k, "_Output", rtB);
+                ppShader.Dispatch(k, tg, tg, 1);
+                (rtA, rtB) = (rtB, rtA);
+            }
+
+            // 2. Gaussian blur (N passes)
+            if (doBlur)
+            {
+                int k = ppShader.FindKernel("GaussianBlur");
+                ppShader.SetInt("_Resolution", resolution);
+                for (int pass = 0; pass < settings.GaussianBlurPasses; pass++)
+                {
+                    ppShader.SetTexture(k, "_Input",  rtA);
+                    ppShader.SetTexture(k, "_Output", rtB);
+                    ppShader.Dispatch(k, tg, tg, 1);
+                    (rtA, rtB) = (rtB, rtA);
+                }
+            }
+
+            // 3. Shadow colour + alpha flatten (always run so alpha=0 background becomes opaque white)
+            {
+                int k = ppShader.FindKernel("ApplyShadowColor");
+                Color sc = settings.ShadowColor;
+                ppShader.SetVector("_ShadowColor", new Vector4(sc.r, sc.g, sc.b, sc.a));
+                ppShader.SetInt("_Resolution", resolution);
+                ppShader.SetTexture(k, "_Input",  rtA);
+                ppShader.SetTexture(k, "_Output", rtB);
+                ppShader.Dispatch(k, tg, tg, 1);
+                (rtA, rtB) = (rtB, rtA);
+            }
+
+            rtB.Release();
+            return rtA; // rtA holds the final result
+        }
+
+        private static RenderTexture CreateFloatRT(int res)
+        {
+            var rt = new RenderTexture(res, res, 0,
+                RenderTextureFormat.ARGBFloat, RenderTextureReadWrite.Linear)
+            {
+                enableRandomWrite = true,
+                filterMode        = FilterMode.Bilinear,
+                wrapMode          = TextureWrapMode.Clamp
+            };
+            rt.Create();
+            return rt;
+        }
+
+        /// <summary>
         /// Saves a baked RenderTexture to disk with resolution scaling, duplicate name handling,
         /// and TextureImporter configuration.
         /// </summary>
@@ -263,6 +358,21 @@ namespace DennokoWorks.Tool.AOBaker
             readTex.ReadPixels(new Rect(0, 0, rt.width, rt.height), 0, 0);
             readTex.Apply();
             RenderTexture.active = prev;
+
+            // Ensure all pixels are fully opaque (background pixels may have alpha=0 from
+            // the AO shader; ApplyShadowColor normally handles this, but guard here too).
+            var pixels = readTex.GetPixels32();
+            bool needsAlphaFix = false;
+            for (int i = 0; i < pixels.Length; i++)
+            {
+                if (pixels[i].a != 255) { needsAlphaFix = true; break; }
+            }
+            if (needsAlphaFix)
+            {
+                for (int i = 0; i < pixels.Length; i++) pixels[i].a = 255;
+                readTex.SetPixels32(pixels);
+                readTex.Apply();
+            }
 
             // Scale to output resolution if different from sampling resolution
             Texture2D outputTex = readTex;

@@ -5,18 +5,12 @@ using UnityEngine.Rendering;
 namespace DennokoWorks.Tool.AOBaker
 {
     /// <summary>
-    /// Merges multiple meshes into a single set of GPU buffers suitable for
-    /// BVH-accelerated ray tracing.  All geometry is transformed into a common
-    /// coordinate space (the target mesh's local space when only one mesh is used,
-    /// or world space when multiple meshes are involved).
+    /// Merges multiple meshes into a single set of GPU buffers for BVH-accelerated ray tracing.
+    /// All geometry is kept in the target mesh's local space so it matches the G-buffer
+    /// positions produced by RasterizeUV.
     /// </summary>
     public class OcclusionGeometryBuilder
     {
-        /// <summary>
-        /// Builds occlusion geometry from target mesh and optional additional occluder meshes.
-        /// When occluder meshes are provided, all geometry is transformed to world space.
-        /// When no occluders are provided, geometry stays in the target mesh's local space.
-        /// </summary>
         public OcclusionGeometry Build(
             Mesh targetMesh,
             Transform targetTransform,
@@ -28,17 +22,21 @@ namespace DennokoWorks.Tool.AOBaker
             var allVertices = new List<Vector3>();
             var allIndices = new List<int>();
 
-            // Add target mesh geometry
-            AppendMesh(targetMesh, hasOccluders ? targetTransform : null,
-                       allVertices, allIndices);
+            // Target mesh always stays in its local space — must match the G-buffer
+            // positions written by RasterizeUV (which uses mesh.vertices without transform).
+            AppendMeshWithMatrix(targetMesh, Matrix4x4.identity, allVertices, allIndices);
 
-            // Add occluder meshes
+            // Occluders are transformed into the target's local space so that all
+            // geometry shares the same coordinate frame as the G-buffer.
             if (hasOccluders)
             {
+                Matrix4x4 worldToTarget = targetTransform.worldToLocalMatrix;
                 for (int i = 0; i < occluders.Count; i++)
                 {
-                    AppendMesh(occluders[i].mesh, occluders[i].transform,
-                               allVertices, allIndices);
+                    Matrix4x4 occluderToTarget =
+                        worldToTarget * occluders[i].transform.localToWorldMatrix;
+                    AppendMeshWithMatrix(occluders[i].mesh, occluderToTarget,
+                                        allVertices, allIndices);
                 }
             }
 
@@ -69,13 +67,8 @@ namespace DennokoWorks.Tool.AOBaker
                 vertexBuffer, indexBuffer, bvhNodeBuffer, primIndexBuffer, triCount);
         }
 
-        /// <summary>
-        /// Appends a single mesh's triangle geometry to the merged vertex/index lists.
-        /// If transform is provided, vertices are transformed to world space.
-        /// Only sub-meshes with MeshTopology.Triangles are included.
-        /// </summary>
-        private static void AppendMesh(
-            Mesh mesh, Transform transform,
+        private static void AppendMeshWithMatrix(
+            Mesh mesh, Matrix4x4 matrix,
             List<Vector3> allVertices, List<int> allIndices)
         {
             if (mesh == null) return;
@@ -83,17 +76,10 @@ namespace DennokoWorks.Tool.AOBaker
             Vector3[] verts = mesh.vertices;
             int baseVertex = allVertices.Count;
 
-            // Transform vertices to world space if a transform is given
-            if (transform != null)
-            {
-                var localToWorld = transform.localToWorldMatrix;
-                for (int v = 0; v < verts.Length; v++)
-                    verts[v] = localToWorld.MultiplyPoint3x4(verts[v]);
-            }
+            bool isIdentity = matrix == Matrix4x4.identity;
+            for (int v = 0; v < verts.Length; v++)
+                allVertices.Add(isIdentity ? verts[v] : matrix.MultiplyPoint3x4(verts[v]));
 
-            allVertices.AddRange(verts);
-
-            // Collect only triangle sub-meshes, offsetting indices
             for (int sub = 0; sub < mesh.subMeshCount; sub++)
             {
                 if (mesh.GetTopology(sub) != MeshTopology.Triangles)

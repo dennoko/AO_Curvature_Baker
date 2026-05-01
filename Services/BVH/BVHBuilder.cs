@@ -49,18 +49,19 @@ namespace DennokoWorks.Tool.AOBaker
 
             var nodes       = new List<BVHNodeGPU>(triCount * 2);
             var primIndices = new List<int>(triCount);
-            Recurse(infos, 0, triCount, nodes, primIndices);
+            nodes.Add(default); // root at index 0
+            BuildNode(infos, 0, triCount, nodes, primIndices, 0);
 
             return (nodes.ToArray(), primIndices.ToArray());
         }
 
-        private static void Recurse(
+        // Fill the pre-allocated node at nodeIdx and recursively build its subtree.
+        // Children are pre-allocated as adjacent slots (right child = leftFirst + 1),
+        // matching the shader's traversal assumption.
+        private static void BuildNode(
             TriInfo[] tris, int start, int end,
-            List<BVHNodeGPU> nodes, List<int> prims)
+            List<BVHNodeGPU> nodes, List<int> prims, int nodeIdx)
         {
-            int nodeIdx = nodes.Count;
-            nodes.Add(default);
-
             Vector3 mn = V3Max, mx = V3Min;
             for (int i = start; i < end; i++) { mn = Vector3.Min(mn, tris[i].Min); mx = Vector3.Max(mx, tris[i].Max); }
 
@@ -116,7 +117,6 @@ namespace DennokoWorks.Tool.AOBaker
 
             if (bestAxis < 0)
             {
-                // All centroids coincide — degenerate leaf
                 MakeLeaf(tris, start, end, mn, mx, nodeIdx, nodes, prims);
                 return;
             }
@@ -132,11 +132,15 @@ namespace DennokoWorks.Tool.AOBaker
             }
             if (pivot == start || pivot == end) pivot = (start + end) / 2;
 
+            // Pre-allocate both child slots adjacently BEFORE recursing,
+            // so right child is always at leftFirst + 1 (as the shader assumes).
             int leftIdx = nodes.Count;
+            nodes.Add(default); // left child slot
+            nodes.Add(default); // right child slot (leftIdx + 1)
             nodes[nodeIdx] = new BVHNodeGPU { BoundsMin = mn, BoundsMax = mx, LeftFirst = leftIdx, Count = 0 };
 
-            Recurse(tris, start, pivot, nodes, prims);
-            Recurse(tris, pivot, end,   nodes, prims);
+            BuildNode(tris, start, pivot, nodes, prims, leftIdx);
+            BuildNode(tris, pivot, end,   nodes, prims, leftIdx + 1);
         }
 
         private static void MakeLeaf(

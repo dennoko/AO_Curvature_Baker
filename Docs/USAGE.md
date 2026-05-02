@@ -33,6 +33,7 @@ Using GPU acceleration, it quickly creates masks that represent soft shadows in 
 ### OUTPUT SETTINGS
 *   **Output Resolution**: The size of the saved image.
 *   **Output Folder**: If left empty, a `BakedAO` folder will be created near the source model.
+*   **UV Channel**: Select which UV set of the mesh to use for baking. "Auto" will automatically select the first valid channel. You can specify a channel (e.g., UV1 for lightmaps) if needed. Only UV channels actually present on the selected meshes will be shown.
 *   **Overwrite Existing**: Whether to replace old files or create new ones.
 
 ### FINISHING TOUCHES

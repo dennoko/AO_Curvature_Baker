@@ -42,6 +42,8 @@
   "Button_ClearAll": "Clear All",
   "Label_OutputRes": "Output Resolution",
   "Tooltip_OutputRes": "The size of the final image. Larger images look sharper but take up more disk space.",
+  "Label_UVChannel": "UV Channel",
+  "Tooltip_UVChannel": "The UV channel to use for baking. Auto selects the first valid channel. Specify explicitly when your mesh uses UV1 for lightmap or AO UVs.",
   "Label_OutputFolder": "Output Folder",
   "Tooltip_OutputFolder": "Where to save the result. If left empty, it will be saved next to the original model.",
   "Label_Overwrite": "Overwrite Existing",
@@ -70,5 +72,8 @@
   "Msg_DenoisingVar": "Denoising (variance estimation)...",
   "Msg_DenoisingPass": "Denoising pass {0}/{1}...",
   "Msg_ComputingCurvature": "Computing curvature...",
-  "Msg_FinalizingCurvature": "Finalizing curvature output..."
+  "Msg_FinalizingCurvature": "Finalizing curvature output...",
+  "Help_UVChannelMissing": "The selected UV channel is missing from some meshes. Please switch to Auto or check your mesh UVs.",
+  "Error_NoUVChannel": "No valid UV channel found on mesh '{0}'. At least one UV set is required for AO baking.",
+  "Error_NotReadable": "Mesh '{0}' is not readable. Enable 'Read/Write Enabled' in the import settings."
 }

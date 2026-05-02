@@ -72,7 +72,7 @@ namespace DennokoWorks.Tool.AOBaker
                     RenderTexture     curvatureResult  = null;
                     try
                     {
-                        context = _meshFormat.BuildContext(mesh, SamplingResolution);
+                        context = _meshFormat.BuildContext(mesh, SamplingResolution, outputSettings.UVChannel);
 
                         // Build occlusion geometry: target mesh + occluder meshes
                         Dispatch(BakeStatus.Baking, baseRatio + perMesh * 0.05f,

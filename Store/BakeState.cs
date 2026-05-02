@@ -21,6 +21,8 @@ namespace DennokoWorks.Tool.AOBaker
         public bool   GaussianBlurEnabled { get; }
         /// <summary>Number of Gaussian blur passes (higher = stronger blur).</summary>
         public int    GaussianBlurPasses  { get; }
+        /// <summary>UV channel used for baking (0–7). -1 = auto (first valid channel).</summary>
+        public int    UVChannel           { get; }
 
         public OutputSettings(
             int    outputResolution    = 1024,
@@ -29,7 +31,8 @@ namespace DennokoWorks.Tool.AOBaker
             int    dilationPixels      = 8,
             Color? shadowColor         = null,
             bool   gaussianBlurEnabled = true,
-            int    gaussianBlurPasses  = 2)
+            int    gaussianBlurPasses  = 2,
+            int    uvChannel           = -1)
         {
             OutputResolution    = outputResolution;
             OutputFolder        = outputFolder ?? "";
@@ -38,6 +41,7 @@ namespace DennokoWorks.Tool.AOBaker
             ShadowColor         = shadowColor ?? Color.black;
             GaussianBlurEnabled = gaussianBlurEnabled;
             GaussianBlurPasses  = Mathf.Clamp(gaussianBlurPasses, 1, 10);
+            UVChannel           = (uvChannel < -1 || uvChannel > 7) ? -1 : uvChannel;
         }
 
         public OutputSettings With(
@@ -47,7 +51,8 @@ namespace DennokoWorks.Tool.AOBaker
             int?    dilationPixels      = null,
             Color?  shadowColor         = null,
             bool?   gaussianBlurEnabled = null,
-            int?    gaussianBlurPasses  = null)
+            int?    gaussianBlurPasses  = null,
+            int?    uvChannel           = null)
         {
             return new OutputSettings(
                 outputResolution    ?? OutputResolution,
@@ -56,7 +61,8 @@ namespace DennokoWorks.Tool.AOBaker
                 dilationPixels      ?? DilationPixels,
                 shadowColor         ?? ShadowColor,
                 gaussianBlurEnabled ?? GaussianBlurEnabled,
-                gaussianBlurPasses  ?? GaussianBlurPasses);
+                gaussianBlurPasses  ?? GaussianBlurPasses,
+                uvChannel           ?? UVChannel);
         }
     }
 

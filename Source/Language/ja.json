@@ -42,6 +42,8 @@
   "Button_ClearAll": "すべてクリア",
   "Label_OutputRes": "出力解像度",
   "Tooltip_OutputRes": "保存される画像の大きさです。大きいほどきれいに見えますが、容量も増えます。",
+  "Label_UVChannel": "UVチャンネル",
+  "Tooltip_UVChannel": "ベイクに使用するUVチャンネルを選択します。Autoにすると最初に有効なチャンネルが自動選択されます。UV1にライトマップ用UVがある場合などに明示的に指定してください。",
   "Label_OutputFolder": "保存先フォルダ",
   "Tooltip_OutputFolder": "空の場合は自動でモデルの近くに保存されます。自分で場所を選びたい場合は設定してください。",
   "Label_Overwrite": "既存ファイルを上書き",
@@ -70,5 +72,8 @@
   "Msg_DenoisingVar": "デノイズ中 (分散推定)...",
   "Msg_DenoisingPass": "デノイズパス {0}/{1}...",
   "Msg_ComputingCurvature": "曲率を計算中...",
-  "Msg_FinalizingCurvature": "曲率出力を最終調整中..."
+  "Msg_FinalizingCurvature": "曲率出力を最終調整中...",
+  "Help_UVChannelMissing": "選択されたUVチャンネルが一部のメッシュに存在しません。Autoに変更するか、メッシュのUVを確認してください。",
+  "Error_NoUVChannel": "メッシュ '{0}' に有効なUVチャンネルが見つかりません。AOベイクには少なくとも1つのUVセットが必要です。",
+  "Error_NotReadable": "メッシュ '{0}' が読み取り不可です。インポート設定で 'Read/Write Enabled' をオンにしてください。"
 }

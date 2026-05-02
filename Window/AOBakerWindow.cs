@@ -516,10 +516,61 @@ namespace DennokoWorks.Tool.AOBaker
                 || go.GetComponentInChildren<SkinnedMeshRenderer>() != null;
         }
 
+        private List<int> GetAvailableUVIndices(IReadOnlyList<GameObject> targets)
+        {
+            var indices = new HashSet<int>();
+            if (targets == null) return new List<int>();
+
+            foreach (var go in targets)
+            {
+                if (go == null) continue;
+                
+                Mesh mesh = null;
+                var mf = go.GetComponentInChildren<MeshFilter>();
+                if (mf != null) mesh = mf.sharedMesh;
+                
+                if (mesh == null)
+                {
+                    var smr = go.GetComponentInChildren<SkinnedMeshRenderer>();
+                    if (smr != null) mesh = smr.sharedMesh;
+                }
+
+                if (mesh == null) continue;
+
+                for (int i = 0; i < 8; i++)
+                {
+                    var uvs = new List<Vector2>();
+                    mesh.GetUVs(i, uvs);
+                    if (uvs.Count > 0) indices.Add(i);
+                }
+            }
+            
+            var result = new List<int>(indices);
+            result.Sort();
+            return result;
+        }
+
         // ---- Output Settings UI ----
 
         private static readonly int[] ResolutionOptions = { 128, 256, 512, 1024, 2048, 4096 };
         private static readonly string[] ResolutionLabels = { "128", "256", "512", "1024", "2048", "4096" };
+
+        private bool MeshHasUV(GameObject go, int channel)
+        {
+            if (go == null) return false;
+            Mesh mesh = null;
+            var mf = go.GetComponentInChildren<MeshFilter>();
+            if (mf != null) mesh = mf.sharedMesh;
+            if (mesh == null)
+            {
+                var smr = go.GetComponentInChildren<SkinnedMeshRenderer>();
+                if (smr != null) mesh = smr.sharedMesh;
+            }
+            if (mesh == null) return false;
+            var uvs = new List<Vector2>();
+            mesh.GetUVs(channel, uvs);
+            return uvs.Count > 0;
+        }
 
         private void DrawOutputSettings(BakeState state)
         {
@@ -534,6 +585,45 @@ namespace DennokoWorks.Tool.AOBaker
                     L("Tooltip_OutputRes")),
                 currentIndex, ResolutionLabels);
             int newResolution = ResolutionOptions[newIndex];
+
+            // UV channel selector: index 0 = Auto (-1), others = available UVs
+            var availableIndices = GetAvailableUVIndices(state.TargetMeshes);
+            var dynamicLabels = new List<string> { "Auto" };
+            var dynamicValues = new List<int> { -1 };
+            
+            foreach (int idx in availableIndices)
+            {
+                dynamicLabels.Add($"UV{idx}");
+                dynamicValues.Add(idx);
+            }
+
+            int currentUV = settings.UVChannel;
+            int popupIndex = dynamicValues.IndexOf(currentUV);
+            if (popupIndex < 0) popupIndex = 0; // Fallback to Auto if current is not in list
+
+            int newPopupIndex = EditorGUILayout.Popup(
+                new GUIContent(L("Label_UVChannel"), L("Tooltip_UVChannel")),
+                popupIndex, dynamicLabels.ToArray());
+            
+            int newUVChannel = dynamicValues[newPopupIndex];
+
+            // Warning if selected UV is missing from any target mesh
+            if (newUVChannel >= 0 && state.TargetMeshes.Count > 0)
+            {
+                bool missingAny = false;
+                foreach (var go in state.TargetMeshes)
+                {
+                    if (go != null && !MeshHasUV(go, newUVChannel))
+                    {
+                        missingAny = true;
+                        break;
+                    }
+                }
+                if (missingAny)
+                {
+                    EditorGUILayout.HelpBox(L("Help_UVChannelMissing"), MessageType.Warning);
+                }
+            }
 
             // Output folder
             GUILayout.BeginHorizontal();
@@ -616,7 +706,8 @@ namespace DennokoWorks.Tool.AOBaker
                         dilationPixels:      dilation,
                         shadowColor:         shadowColor,
                         gaussianBlurEnabled: blurEnabled,
-                        gaussianBlurPasses:  blurPasses)));
+                        gaussianBlurPasses:  blurPasses,
+                        uvChannel:           newUVChannel)));
             }
         }
 

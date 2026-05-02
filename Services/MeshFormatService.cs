@@ -7,17 +7,18 @@ namespace DennokoWorks.Tool.AOBaker
 {
     public class MeshFormatService
     {
+        private static string L(string key, params object[] args) => string.Format(LocalizationManager.Get(key), args);
+
         // Extracts mesh data into ComputeBuffers ready for GPU dispatch.
         // All geometry remains in local (mesh) space — the world transform is
         // applied in the caller if mutual-occlusion across multiple objects is needed.
-        public BakeContext BuildContext(Mesh mesh, int textureResolution)
+        public BakeContext BuildContext(Mesh mesh, int textureResolution, int uvChannel = -1)
         {
             if (mesh == null)
                 throw new ArgumentNullException(nameof(mesh));
 
             if (!mesh.isReadable)
-                throw new InvalidOperationException(
-                    $"Mesh '{mesh.name}' is not readable. Enable 'Read/Write Enabled' in the mesh import settings.");
+                throw new InvalidOperationException(L("Error_NotReadable", mesh.name));
 
             Vector3[] vertices = mesh.vertices;
 
@@ -44,12 +45,11 @@ namespace DennokoWorks.Tool.AOBaker
             if (normals == null || normals.Length != vertices.Length)
                 normals = new Vector3[vertices.Length];
 
-            // UVs — try channel 0 first, then fall back to channels 1–7
-            Vector2[] uvs = FindValidUVChannel(mesh, vertices.Length);
+            // UVs — use the specified channel, or auto-detect starting from channel 0
+            Vector2[] uvs = FindValidUVChannel(mesh, vertices.Length, uvChannel);
 
             if (uvs == null)
-                throw new InvalidOperationException(
-                    $"Mesh '{mesh.name}' has no valid UV channel. At least one UV set is required for AO baking.");
+                throw new InvalidOperationException(L("Error_NoUVChannel", mesh.name));
 
             var vertexBuffer = new ComputeBuffer(vertices.Length, 3 * sizeof(float));
             vertexBuffer.SetData(vertices);
@@ -88,17 +88,27 @@ namespace DennokoWorks.Tool.AOBaker
         }
 
         /// <summary>
-        /// Searches UV channels 0–7 for a valid UV set matching the vertex count.
-        /// Returns the first valid channel found, or null if none exist.
+        /// Returns UV data for baking. If preferredChannel is 0–7, that channel is tried first;
+        /// if it is empty or invalid, falls back to auto-detection (channels 0–7 in order).
+        /// Returns null if no valid channel exists.
         /// </summary>
-        private static Vector2[] FindValidUVChannel(Mesh mesh, int vertexCount)
+        private static Vector2[] FindValidUVChannel(Mesh mesh, int vertexCount, int preferredChannel)
         {
-            // mesh.uv, mesh.uv2, ..., mesh.uv8 correspond to channels 0–7
+            if (preferredChannel >= 0 && preferredChannel < 8)
+            {
+                var uvList = new List<Vector2>();
+                mesh.GetUVs(preferredChannel, uvList);
+                if (uvList.Count == vertexCount)
+                    return uvList.ToArray();
+
+                Debug.LogWarning(
+                    $"[AO Baker] UV{preferredChannel} is missing or invalid on '{mesh.name}'. Falling back to auto-detect.");
+            }
+
             for (int channel = 0; channel < 8; channel++)
             {
                 var uvList = new List<Vector2>();
                 mesh.GetUVs(channel, uvList);
-
                 if (uvList.Count == vertexCount)
                     return uvList.ToArray();
             }

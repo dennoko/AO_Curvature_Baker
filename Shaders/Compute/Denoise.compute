@@ -31,6 +31,14 @@ void EstimateVariance(uint3 id : SV_DispatchThreadID)
     int py = (int)id.y;
     if (px >= _Resolution || py >= _Resolution) return;
 
+    // Background pixels: pass through with zero variance.
+    if (_PositionMap[id.xy].w < 0.5)
+    {
+        _AOOut[id.xy]       = _AOIn[id.xy];
+        _VarianceOut[id.xy] = float4(0, 0, 0, 0);
+        return;
+    }
+
     float sumW = 0.0, sumAO = 0.0, sumAO2 = 0.0;
 
     [unroll]
@@ -40,6 +48,9 @@ void EstimateVariance(uint3 id : SV_DispatchThreadID)
         for (int dx = -3; dx <= 3; dx++)
         {
             int2 c = clamp(int2(px + dx, py + dy), int2(0, 0), int2(_Resolution - 1, _Resolution - 1));
+            // Skip background neighbours — including their ao=1.0 would inflate variance
+            // at UV island boundaries and break the luminance edge-stopping in ATrousFilter.
+            if (_PositionMap[c].w < 0.5) continue;
             float ao = _AOIn[c].r;
             sumW   += 1.0;
             sumAO  += ao;
@@ -47,11 +58,15 @@ void EstimateVariance(uint3 id : SV_DispatchThreadID)
         }
     }
 
-    float mean = sumAO  / sumW;
-    float var  = sumAO2 / sumW - mean * mean;
+    float var = 0.0;
+    if (sumW > 0.0)
+    {
+        float mean = sumAO / sumW;
+        var = max(0.0, sumAO2 / sumW - mean * mean);
+    }
 
     _AOOut[id.xy]       = _AOIn[id.xy];              // pass-through AO unchanged
-    _VarianceOut[id.xy] = float4(max(0.0, var), 0, 0, 1);
+    _VarianceOut[id.xy] = float4(var, 0, 0, 1);
 }
 
 // ---------------------------------------------------------------------------

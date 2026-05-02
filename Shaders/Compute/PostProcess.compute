@@ -81,8 +81,9 @@ void GaussianBlur(uint3 id : SV_DispatchThreadID)
     {
         for (int dx = -4; dx <= 4; dx++)
         {
-            int2 pos = clamp(int2(id.xy) + int2(dx, dy),
-                             int2(0, 0), int2(_Resolution - 1, _Resolution - 1));
+            int2 pos = int2(id.xy) + int2(dx, dy);
+            if (pos.x < 0 || pos.x >= _Resolution || pos.y < 0 || pos.y >= _Resolution)
+                continue;
             float4 s = _Input[pos];
             if (s.a < 0.5) continue;
 

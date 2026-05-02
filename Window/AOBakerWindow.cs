@@ -108,7 +108,7 @@ namespace DennokoWorks.Tool.AOBaker
 
             GUILayout.BeginHorizontal();
             GUILayout.Space(6);
-            GUILayout.Label("AO / Curvature Baker", UniTexTheme.TitleStyle);
+            GUILayout.Label("Fast AO Baker", UniTexTheme.TitleStyle);
             GUILayout.FlexibleSpace();
 
             // Language Switch
@@ -241,6 +241,7 @@ namespace DennokoWorks.Tool.AOBaker
                     denoiseSigmaLum:   4.0f)));
             });
 
+            /* Curvature function is hidden for now, but logic is preserved for future use.
             DrawToggleSection(L("Section_Curvature"), state.CurvatureSettings.BakeEnabled, 
                 val => BakeStore.Dispatch(new UpdateCurvatureSettingsAction(state.CurvatureSettings.With(bakeEnabled: val))),
                 () =>
@@ -272,6 +273,7 @@ namespace DennokoWorks.Tool.AOBaker
             {
                 BakeStore.Dispatch(new UpdateCurvatureSettingsAction(new CurvatureSettings()));
             });
+            */
 
             DrawSection(L("Section_Output"), () =>
             {

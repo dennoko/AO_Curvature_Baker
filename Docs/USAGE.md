@@ -1,8 +1,8 @@
 # Fast AO Baker Usage Guide
 
 ## 1. Tool Overview
-Fast AO Baker is a Unity Editor tool designed to compute and save "Ambient Occlusion (AO)" and "Curvature" maps as textures. 
-Using GPU acceleration, it quickly creates masks that represent soft shadows in corners or wear and tear on edges.
+Fast AO Baker is a Unity Editor tool designed to compute and save "Ambient Occlusion (AO)" maps as textures. 
+Using GPU acceleration, it quickly creates masks that represent soft shadows in corners.
 
 ## 2. Basic Workflow
 1.  **Register Models**: Drag and drop the objects you want to bake into the `TARGET` section.
@@ -29,8 +29,6 @@ Using GPU acceleration, it quickly creates masks that represent soft shadows in 
 ### SHADOW SMOOTHING
 *   Settings to smooth out grainy shadows. Defaults are usually sufficient for a clean look.
 
-### CURVATURE MAP (Experimental)
-*   Detects "edges" of the model. Useful for creating masks for edge wear or dirt effects.
 
 ### OUTPUT SETTINGS
 *   **Output Resolution**: The size of the saved image.

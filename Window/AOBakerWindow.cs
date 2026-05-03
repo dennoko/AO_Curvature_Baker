@@ -167,8 +167,12 @@ namespace DennokoWorks.Tool.AOBaker
             {
                 EditorGUI.BeginChangeCheck();
 
-                bool useSelf   = EditorGUILayout.Toggle(L("Label_SelfOcclusion"),   state.AOSettings.UseSelfOcclusion);
-                bool useMutual = EditorGUILayout.Toggle(L("Label_MutualOcclusion"), state.AOSettings.UseMutualOcclusion);
+                bool useSelf   = EditorGUILayout.Toggle(
+                    new GUIContent(L("Label_SelfOcclusion"),   L("Tooltip_SelfOcclusion")),
+                    state.AOSettings.UseSelfOcclusion);
+                bool useMutual = EditorGUILayout.Toggle(
+                    new GUIContent(L("Label_MutualOcclusion"), L("Tooltip_MutualOcclusion")),
+                    state.AOSettings.UseMutualOcclusion);
                 bool lowRes    = EditorGUILayout.Toggle(
                     new GUIContent(L("Label_LowResource"),
                         L("Tooltip_LowResource")),
@@ -192,8 +196,12 @@ namespace DennokoWorks.Tool.AOBaker
             {
                 EditorGUI.BeginChangeCheck();
 
-                int rayCount = EditorGUILayout.IntSlider(L("Label_RayCount"), state.AOSettings.RayCount, 16, 512);
-                float maxDistance = EditorGUILayout.Slider(L("Label_MaxDistance"), state.AOSettings.MaxDistance, 0.1f, 100f);
+                int rayCount = EditorGUILayout.IntSlider(
+                    new GUIContent(L("Label_RayCount"), L("Tooltip_RayCount")),
+                    state.AOSettings.RayCount, 16, 512);
+                float maxDistance = EditorGUILayout.Slider(
+                    new GUIContent(L("Label_MaxDistance"), L("Tooltip_MaxDistance")),
+                    state.AOSettings.MaxDistance, 0.1f, 100f);
 
                 if (EditorGUI.EndChangeCheck())
                 {
@@ -420,7 +428,7 @@ namespace DennokoWorks.Tool.AOBaker
             // Empty slot for adding a new target via drag-and-drop
             EditorGUI.BeginChangeCheck();
             var addObj = (GameObject)EditorGUILayout.ObjectField(
-                L("Label_AddTarget"), null, typeof(GameObject), true);
+                new GUIContent(L("Label_AddTarget"), L("Tooltip_AddTarget")), null, typeof(GameObject), true);
             if (EditorGUI.EndChangeCheck() && addObj != null)
             {
                 if (!HasMeshComponent(addObj))
@@ -484,7 +492,7 @@ namespace DennokoWorks.Tool.AOBaker
             // Empty slot for adding a new occluder via drag-and-drop
             EditorGUI.BeginChangeCheck();
             var addObj = (GameObject)EditorGUILayout.ObjectField(
-                L("Label_AddOccluder"), null, typeof(GameObject), true);
+                new GUIContent(L("Label_AddOccluder"), L("Tooltip_AddOccluder")), null, typeof(GameObject), true);
             if (EditorGUI.EndChangeCheck() && addObj != null)
             {
                 if (!HasMeshComponent(addObj))
@@ -503,7 +511,7 @@ namespace DennokoWorks.Tool.AOBaker
             if (list.Count > 1)
             {
                 EditorGUILayout.Space(2);
-                if (GUILayout.Button(L("Button_ClearAll"), UniTexTheme.SecondaryButtonStyle))
+                if (GUILayout.Button(new GUIContent(L("Button_ClearAll"), L("Tooltip_ClearAll")), UniTexTheme.SecondaryButtonStyle))
                 {
                     BakeStore.Dispatch(new SetOccluderMeshesAction(new List<GameObject>()));
                 }

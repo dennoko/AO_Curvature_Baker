@@ -44,6 +44,7 @@ namespace DennokoWorks.Tool.AOBaker
 
                 float perMesh = 1f / state.TargetMeshes.Count;
 
+                string lastFolder = null;
                 for (int i = 0; i < state.TargetMeshes.Count; i++)
                 {
                     var    go        = state.TargetMeshes[i];
@@ -55,6 +56,7 @@ namespace DennokoWorks.Tool.AOBaker
 
                     // Resolve output folder for this mesh
                     string outputFolder = ResolveOutputFolder(go, outputSettings.OutputFolder);
+                    lastFolder = outputFolder;
                     EnsureOutputFolder(outputFolder);
 
                     bool isBakedMesh = false;
@@ -158,6 +160,21 @@ namespace DennokoWorks.Tool.AOBaker
                 }
 
                 AssetDatabase.Refresh();
+
+                // Automatically highlight and open the saved folder in the Project window
+                if (!string.IsNullOrEmpty(lastFolder))
+                {
+                    var folderAsset = AssetDatabase.LoadAssetAtPath<UnityEngine.Object>(lastFolder);
+                    if (folderAsset != null)
+                    {
+                        Selection.activeObject = folderAsset;
+                        EditorGUIUtility.PingObject(folderAsset);
+                        
+                        // Open the folder to show its contents in the Project window
+                        AssetDatabase.OpenAsset(folderAsset);
+                    }
+                }
+
                 BakeStore.Dispatch(new BakeCompletedAction());
             }
             catch (Exception ex)

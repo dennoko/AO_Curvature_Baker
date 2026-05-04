@@ -6,8 +6,7 @@ namespace DennokoWorks.Tool.AOBaker
 {
     /// <summary>
     /// Merges multiple meshes into a single set of GPU buffers for BVH-accelerated ray tracing.
-    /// All geometry is kept in the target mesh's local space so it matches the G-buffer
-    /// positions produced by RasterizeUV.
+    /// All geometry is transformed into world space.
     /// </summary>
     public class OcclusionGeometryBuilder
     {
@@ -22,20 +21,18 @@ namespace DennokoWorks.Tool.AOBaker
             var allVertices = new List<Vector3>();
             var allIndices = new List<int>();
 
-            // Target mesh always stays in its local space — must match the G-buffer
-            // positions written by RasterizeUV (which uses mesh.vertices without transform).
-            AppendMeshWithMatrix(targetMesh, Matrix4x4.identity, allVertices, allIndices);
+            // Target mesh is transformed to world space to match G-buffer positions
+            // written by RasterizeUV (which will also use world space vertices).
+            AppendMeshWithMatrix(targetMesh, targetTransform.localToWorldMatrix, allVertices, allIndices);
 
-            // Occluders are transformed into the target's local space so that all
-            // geometry shares the same coordinate frame as the G-buffer.
+            int targetTriCount = allIndices.Count / 3;
+
+            // Occluders are transformed to world space.
             if (hasOccluders)
             {
-                Matrix4x4 worldToTarget = targetTransform.worldToLocalMatrix;
                 for (int i = 0; i < occluders.Count; i++)
                 {
-                    Matrix4x4 occluderToTarget =
-                        worldToTarget * occluders[i].transform.localToWorldMatrix;
-                    AppendMeshWithMatrix(occluders[i].mesh, occluderToTarget,
+                    AppendMeshWithMatrix(occluders[i].mesh, occluders[i].transform.localToWorldMatrix,
                                         allVertices, allIndices);
                 }
             }
@@ -64,7 +61,7 @@ namespace DennokoWorks.Tool.AOBaker
             primIndexBuffer.SetData(primIndices);
 
             return new OcclusionGeometry(
-                vertexBuffer, indexBuffer, bvhNodeBuffer, primIndexBuffer, triCount);
+                vertexBuffer, indexBuffer, bvhNodeBuffer, primIndexBuffer, triCount, targetTriCount);
         }
 
         private static void AppendMeshWithMatrix(

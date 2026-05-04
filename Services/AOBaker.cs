@@ -78,6 +78,7 @@ namespace DennokoWorks.Tool.AOBaker
             aoShader.SetTexture(aoKernel, "_AOOutput",    aoRT);
             aoShader.SetInt("_TriangleCount",      context.TriangleCount);
             aoShader.SetInt("_OccTriangleCount",   occlusionGeometry.TriangleCount);
+            aoShader.SetInt("_TargetOccTriCount",  occlusionGeometry.TargetTriangleCount);
             aoShader.SetInt("_Resolution",         res);
             aoShader.SetInt("_RayCount",           settings.RayCount);
             aoShader.SetFloat("_MaxDistance",      settings.MaxDistance);

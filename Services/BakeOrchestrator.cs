@@ -74,7 +74,7 @@ namespace DennokoWorks.Tool.AOBaker
                     RenderTexture     curvatureResult  = null;
                     try
                     {
-                        context = _meshFormat.BuildContext(mesh, SamplingResolution, outputSettings.UVChannel);
+                        context = _meshFormat.BuildContext(mesh, go.transform, SamplingResolution, outputSettings.UVChannel);
 
                         // Build occlusion geometry: target mesh + occluder meshes
                         Dispatch(BakeStatus.Baking, baseRatio + perMesh * 0.05f,
@@ -217,6 +217,7 @@ namespace DennokoWorks.Tool.AOBaker
         /// <summary>
         /// Collects Mesh + Transform pairs from occluder GameObjects.
         /// SkinnedMeshRenderer meshes are baked to capture current pose.
+        /// When an NDMF preview session is active, the proxy renderer is used instead.
         /// </summary>
         private static List<(Mesh mesh, Transform transform)> CollectOccluderMeshes(
             IReadOnlyList<GameObject> occluderObjects)
@@ -231,42 +232,66 @@ namespace DennokoWorks.Tool.AOBaker
                 var mf = go.GetComponentInChildren<MeshFilter>();
                 if (mf != null && mf.sharedMesh != null)
                 {
-                    result.Add((mf.sharedMesh, mf.transform));
+                    var mr = mf.GetComponent<MeshRenderer>();
+                    var proxyMr = mr != null
+                        ? NdmfProxyResolver.GetProxyRenderer(mr) as MeshRenderer
+                        : null;
+                    var proxyMf = proxyMr?.GetComponent<MeshFilter>();
+                    if (proxyMf?.sharedMesh != null)
+                        result.Add((proxyMf.sharedMesh, proxyMr.transform));
+                    else
+                        result.Add((mf.sharedMesh, mf.transform));
                     continue;
                 }
 
                 var smr = go.GetComponentInChildren<SkinnedMeshRenderer>();
                 if (smr != null && smr.sharedMesh != null)
                 {
-                    var source = smr.sharedMesh;
-                    var baked = new Mesh { name = source.name + "_occluder_baked" };
-                    smr.BakeMesh(baked);
-                    result.Add((baked, smr.transform));
+                    var sourceSmr = NdmfProxyResolver.GetProxyRenderer(smr) as SkinnedMeshRenderer ?? smr;
+                    var baked = new Mesh { name = sourceSmr.sharedMesh.name + "_occluder_baked" };
+                    sourceSmr.BakeMesh(baked);
+                    result.Add((baked, sourceSmr.transform));
                 }
             }
 
             return result;
         }
 
+        /// <summary>
+        /// Extracts a Mesh from the target GameObject.
+        /// Priority: NDMF preview proxy renderer > original renderer.
+        /// SkinnedMeshRenderer uses BakeMesh to capture the current pose.
+        /// </summary>
         private static Mesh ExtractMesh(GameObject go, out bool isBakedMesh)
         {
             isBakedMesh = false;
 
             var mf = go.GetComponentInChildren<MeshFilter>();
-            if (mf != null && mf.sharedMesh != null) return mf.sharedMesh;
+            if (mf != null && mf.sharedMesh != null)
+            {
+                var mr = mf.GetComponent<MeshRenderer>();
+                var proxyMr = mr != null
+                    ? NdmfProxyResolver.GetProxyRenderer(mr) as MeshRenderer
+                    : null;
+                var proxyMf = proxyMr?.GetComponent<MeshFilter>();
+                return proxyMf?.sharedMesh ?? mf.sharedMesh;
+            }
 
             var smr = go.GetComponentInChildren<SkinnedMeshRenderer>();
             if (smr != null && smr.sharedMesh != null)
             {
-                var source = smr.sharedMesh;
-                var baked = new Mesh { name = source.name + "_baked" };
-                smr.BakeMesh(baked);
+                var sourceSmr = NdmfProxyResolver.GetProxyRenderer(smr) as SkinnedMeshRenderer ?? smr;
+                var uvSource = sourceSmr.sharedMesh;
 
-                // BakeMesh only writes skinned vertex positions — copy UVs from the source mesh.
+                var baked = new Mesh { name = uvSource.name + "_baked" };
+                sourceSmr.BakeMesh(baked);
+
+                // BakeMesh only writes skinned vertex positions — copy UVs from sharedMesh.
+                var uvList = new List<Vector2>();
                 for (int ch = 0; ch < 8; ch++)
                 {
-                    var uvList = new List<Vector2>();
-                    source.GetUVs(ch, uvList);
+                    uvList.Clear();
+                    uvSource.GetUVs(ch, uvList);
                     if (uvList.Count > 0)
                         baked.SetUVs(ch, uvList);
                 }

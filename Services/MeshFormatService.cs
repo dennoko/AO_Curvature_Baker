@@ -10,9 +10,8 @@ namespace DennokoWorks.Tool.AOBaker
         private static string L(string key, params object[] args) => string.Format(LocalizationManager.Get(key), args);
 
         // Extracts mesh data into ComputeBuffers ready for GPU dispatch.
-        // All geometry remains in local (mesh) space — the world transform is
-        // applied in the caller if mutual-occlusion across multiple objects is needed.
-        public BakeContext BuildContext(Mesh mesh, int textureResolution, int uvChannel = -1)
+        // All geometry is transformed to world space using the targetTransform.
+        public BakeContext BuildContext(Mesh mesh, Transform targetTransform, int textureResolution, int uvChannel = -1)
         {
             if (mesh == null)
                 throw new ArgumentNullException(nameof(mesh));
@@ -24,6 +23,13 @@ namespace DennokoWorks.Tool.AOBaker
 
             if (vertices == null || vertices.Length == 0)
                 throw new InvalidOperationException($"Mesh '{mesh.name}' has no vertices.");
+
+            // Apply world transform
+            Matrix4x4 localToWorld = targetTransform.localToWorldMatrix;
+            for (int i = 0; i < vertices.Length; i++)
+            {
+                vertices[i] = localToWorld.MultiplyPoint3x4(vertices[i]);
+            }
 
             // Collect triangle indices from all sub-meshes, filtering out non-Triangle topologies
             // (e.g. Lines, Points) that would corrupt the index buffer stride.
@@ -44,6 +50,13 @@ namespace DennokoWorks.Tool.AOBaker
             // (can happen with degenerate or non-manifold geometry)
             if (normals == null || normals.Length != vertices.Length)
                 normals = new Vector3[vertices.Length];
+            else
+            {
+                for (int i = 0; i < normals.Length; i++)
+                {
+                    normals[i] = targetTransform.TransformDirection(normals[i]).normalized;
+                }
+            }
 
             // UVs — use the specified channel, or auto-detect starting from channel 0
             Vector2[] uvs = FindValidUVChannel(mesh, vertices.Length, uvChannel);

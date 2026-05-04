@@ -44,6 +44,7 @@ int   _RayCount;
 float _MaxDistance;
 int   _UseSelfOcclusion;
 int   _UseMutualOcclusion;
+int   _TargetOccTriCount;
 
 // --- Tile parameters (TraceAO only) ---
 int _TileOffsetX;
@@ -121,6 +122,10 @@ bool TraceRayBVH(float3 ro, float3 rd, float maxDist)
             for (int k = 0; k < node.count; k++)
             {
                 int tri = _PrimIndices[node.leftFirst + k];
+                bool isSelf = tri < _TargetOccTriCount;
+                if (isSelf && _UseSelfOcclusion == 0) continue;
+                if (!isSelf && _UseMutualOcclusion == 0) continue;
+
                 int i0  = _OccIndices[tri * 3 + 0];
                 int i1  = _OccIndices[tri * 3 + 1];
                 int i2  = _OccIndices[tri * 3 + 2];

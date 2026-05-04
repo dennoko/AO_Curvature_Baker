@@ -14,19 +14,22 @@ namespace DennokoWorks.Tool.AOBaker
         public ComputeBuffer BVHNodeBuffer { get; }
         public ComputeBuffer PrimIndexBuffer { get; }
         public int TriangleCount { get; }
+        public int TargetTriangleCount { get; }
 
         public OcclusionGeometry(
             ComputeBuffer vertexBuffer,
             ComputeBuffer indexBuffer,
             ComputeBuffer bvhNodeBuffer,
             ComputeBuffer primIndexBuffer,
-            int triangleCount)
+            int triangleCount,
+            int targetTriangleCount)
         {
             VertexBuffer = vertexBuffer;
             IndexBuffer = indexBuffer;
             BVHNodeBuffer = bvhNodeBuffer;
             PrimIndexBuffer = primIndexBuffer;
             TriangleCount = triangleCount;
+            TargetTriangleCount = targetTriangleCount;
         }
 
         public void Dispose()

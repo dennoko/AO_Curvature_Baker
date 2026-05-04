@@ -8,7 +8,7 @@ Using GPU acceleration, it quickly creates masks that represent soft shadows in 
 1.  **Register Models**: Drag and drop the objects you want to bake into the `TARGET` section.
 2.  **Adjust Settings**: Change settings like shadow density or resolution if needed (defaults usually work fine).
 3.  **Run Bake**: Click the `Bake Now` button at the bottom.
-4.  **Check Result**: Once finished, textures will be generated in the same folder as the model (or your specified folder).
+4.  **Check Result**: Once finished, textures will be generated in the same folder as the model's main texture (or your specified folder).
 
 ## 3. Feature Descriptions
 ### TARGET

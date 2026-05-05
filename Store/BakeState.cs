@@ -105,6 +105,7 @@ namespace DennokoWorks.Tool.AOBaker
         public bool  UseMutualOcclusion { get; }
         public int   RayCount           { get; }
         public float MaxDistance        { get; }
+        public float Bias               { get; }
         public bool  LowResourceMode    { get; }
 
         // SVGF denoising
@@ -119,6 +120,7 @@ namespace DennokoWorks.Tool.AOBaker
             bool  useMutualOcclusion = true,
             int   rayCount           = 64,
             float maxDistance        = 1.0f,
+            float bias               = 0.0001f,
             bool  lowResourceMode    = false,
             bool  denoiseEnabled     = true,
             int   denoiseIterations  = 4,
@@ -130,6 +132,7 @@ namespace DennokoWorks.Tool.AOBaker
             UseMutualOcclusion = useMutualOcclusion;
             RayCount           = rayCount;
             MaxDistance        = maxDistance;
+            Bias               = bias;
             LowResourceMode    = lowResourceMode;
             DenoiseEnabled     = denoiseEnabled;
             DenoiseIterations  = denoiseIterations;
@@ -143,6 +146,7 @@ namespace DennokoWorks.Tool.AOBaker
             bool?  useMutualOcclusion = null,
             int?   rayCount           = null,
             float? maxDistance        = null,
+            float? bias               = null,
             bool?  lowResourceMode    = null,
             bool?  denoiseEnabled     = null,
             int?   denoiseIterations  = null,
@@ -155,6 +159,7 @@ namespace DennokoWorks.Tool.AOBaker
                 useMutualOcclusion ?? UseMutualOcclusion,
                 rayCount           ?? RayCount,
                 maxDistance        ?? MaxDistance,
+                bias               ?? Bias,
                 lowResourceMode    ?? LowResourceMode,
                 denoiseEnabled     ?? DenoiseEnabled,
                 denoiseIterations  ?? DenoiseIterations,

@@ -269,6 +269,14 @@ namespace DennokoWorks.Tool.AOBaker
             var mf = go.GetComponentInChildren<MeshFilter>();
             if (mf != null && mf.sharedMesh != null)
             {
+                if (mf.gameObject != go)
+                {
+                    EditorUtility.DisplayDialog(
+                        L("Warning_ChildMesh_Title"),
+                        L("Warning_ChildMesh_Body", go.name, mf.gameObject.name),
+                        "OK");
+                }
+
                 var mr = mf.GetComponent<MeshRenderer>();
                 var proxyMr = mr != null
                     ? NdmfProxyResolver.GetProxyRenderer(mr) as MeshRenderer

@@ -21,6 +21,8 @@
   "Tooltip_RayCount": "Number of shadow rays cast per texel. Higher values produce smoother, more accurate shadows at the cost of longer bake times.",
   "Label_MaxDistance": "Shadow Spread",
   "Tooltip_MaxDistance": "How far shadow rays can travel. Larger values produce wider, softer shadows. Smaller values give tighter, more localized shadows.",
+  "Label_AOBias": "Ray Bias",
+  "Tooltip_AOBias": "Offset distance from the surface to start shadow rays. Increase if you see black noise (self-shadowing), decrease if shadows detach from contact points.",
   "Button_Reset": "Reset",
   "Section_SVGF": "SHADOW SMOOTHING",
   "Label_Iterations": "Smoothness",
@@ -82,5 +84,7 @@
   "Msg_FinalizingCurvature": "Finalizing curvature output...",
   "Help_UVChannelMissing": "The selected UV channel is missing from some meshes. Please switch to Auto or check your mesh UVs.",
   "Error_NoUVChannel": "No valid UV channel found on mesh '{0}'. At least one UV set is required for AO baking.",
-  "Error_NotReadable": "Mesh '{0}' is not readable. Enable 'Read/Write Enabled' in the import settings."
+  "Error_NotReadable": "Mesh '{0}' is not readable. Enable 'Read/Write Enabled' in the import settings.",
+  "Warning_ChildMesh_Title": "Mesh on Child Object",
+  "Warning_ChildMesh_Body": "The target '{0}' has its MeshFilter on a child object '{1}'.\n\nThis tool assumes the mesh is attached directly to the specified GameObject. Bake results may be positionally inaccurate.\n\nFor best results, specify '{1}' directly as the target."
 }

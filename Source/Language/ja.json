@@ -21,6 +21,8 @@
   "Tooltip_RayCount": "テクセルごとに飛ばす影レイの本数です。値が高いほど影が滑らかで正確になりますが、ベイク時間が長くなります。",
   "Label_MaxDistance": "影の広がり",
   "Tooltip_MaxDistance": "影レイが届く最大距離です。大きいほど広がりのある柔らかな影になり、小さいほど狭く局所的な影になります。",
+  "Label_AOBias": "レイの浮き (Bias)",
+  "Tooltip_AOBias": "メッシュ表面から影の計算を開始する高さです。黒いノイズ(自己遮蔽)が出る場合は上げ、接地部分の影が浮く場合は下げてください。",
   "Button_Reset": "リセット",
   "Section_SVGF": "影のノイズ除去",
   "Label_Iterations": "滑らかさ",
@@ -82,5 +84,7 @@
   "Msg_FinalizingCurvature": "曲率出力を最終調整中...",
   "Help_UVChannelMissing": "選択されたUVチャンネルが一部のメッシュに存在しません。Autoに変更するか、メッシュのUVを確認してください。",
   "Error_NoUVChannel": "メッシュ '{0}' に有効なUVチャンネルが見つかりません。AOベイクには少なくとも1つのUVセットが必要です。",
-  "Error_NotReadable": "メッシュ '{0}' が読み取り不可です。インポート設定で 'Read/Write Enabled' をオンにしてください。"
+  "Error_NotReadable": "メッシュ '{0}' が読み取り不可です。インポート設定で 'Read/Write Enabled' をオンにしてください。",
+  "Warning_ChildMesh_Title": "子オブジェクトにメッシュがあります",
+  "Warning_ChildMesh_Body": "ターゲット '{0}' のMeshFilterは子オブジェクト '{1}' にあります。\n\nこのツールはメッシュが指定したGameObjectに直接アタッチされていることを想定しています。ベイク結果の位置が不正確になる場合があります。\n\n正確なベイクのため、'{1}' を直接ターゲットとして指定することをおすすめします。"
 }

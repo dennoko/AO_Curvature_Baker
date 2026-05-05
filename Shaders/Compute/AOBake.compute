@@ -42,6 +42,7 @@ int   _Resolution;
 // --- TraceAO parameters ---
 int   _RayCount;
 float _MaxDistance;
+float _Bias;
 int   _UseSelfOcclusion;
 int   _UseMutualOcclusion;
 int   _TargetOccTriCount;
@@ -77,7 +78,7 @@ bool RayTriangleIntersect(
     if (v < 0.0 || (u + v) > 1.0) return false;
 
     float t = f * dot(e2, q);
-    if (t < 1e-4 || t >= maxDist) return false;
+    if (t < 1e-6 || t >= maxDist) return false;
 
     tHit = t;
     return true;
@@ -96,8 +97,9 @@ bool RayAABBIntersect(float3 ro, float3 invRd, float3 mn, float3 mx, float maxDi
 }
 
 // BVH traversal: returns true as soon as any occluder is found (shadow ray).
-bool TraceRayBVH(float3 ro, float3 rd, float maxDist)
+bool TraceRayBVH(float3 ro, float3 rd, float maxDist, out float tHit)
 {
+    tHit = maxDist;
     // Safe reciprocal — avoid divide-by-zero for axis-aligned rays.
     float3 invRd = float3(
         abs(rd.x) > 1e-8 ? rcp(rd.x) : 1e30,
@@ -129,11 +131,14 @@ bool TraceRayBVH(float3 ro, float3 rd, float maxDist)
                 int i0  = _OccIndices[tri * 3 + 0];
                 int i1  = _OccIndices[tri * 3 + 1];
                 int i2  = _OccIndices[tri * 3 + 2];
-                float unused;
+                float currentT;
                 if (RayTriangleIntersect(ro, rd,
                         _OccVertices[i0], _OccVertices[i1], _OccVertices[i2],
-                        maxDist, unused))
+                        maxDist, currentT))
+                {
+                    tHit = currentT;
                     return true;
+                }
             }
         }
         else // internal — push both children
@@ -244,7 +249,7 @@ void TraceAO(uint3 id : SV_DispatchThreadID)
 
     float3 worldPos    = posData.xyz;
     float3 worldNormal = normalize(_NormalMap[texCoord].xyz * 2.0 - 1.0);
-    float3 rayOrigin   = worldPos + worldNormal * 0.001;
+    float3 rayOrigin   = worldPos + worldNormal * _Bias;
 
     float occluded = 0.0;
     uint  seed     = (uint)px * 1973u + (uint)py * 9277u + 7213u;
@@ -255,8 +260,12 @@ void TraceAO(uint3 id : SV_DispatchThreadID)
         float u2      = PcgHash(seed + (uint)r * 2u + 1u);
         float3 rayDir = SampleHemisphereCosine(worldNormal, u1, u2);
 
-        if (TraceRayBVH(rayOrigin, rayDir, _MaxDistance))
-            occluded += 1.0;
+        float tHit;
+        if (TraceRayBVH(rayOrigin, rayDir, _MaxDistance, tHit))
+        {
+            float falloff = saturate(1.0 - (tHit / _MaxDistance));
+            occluded += falloff;
+        }
     }
 
     float ao = 1.0 - (occluded / max((float)_RayCount, 1.0));

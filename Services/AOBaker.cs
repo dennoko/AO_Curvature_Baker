@@ -82,6 +82,7 @@ namespace DennokoWorks.Tool.AOBaker
             aoShader.SetInt("_Resolution",         res);
             aoShader.SetInt("_RayCount",           settings.RayCount);
             aoShader.SetFloat("_MaxDistance",      settings.MaxDistance);
+            aoShader.SetFloat("_Bias",             settings.Bias);
             aoShader.SetInt("_UseSelfOcclusion",   settings.UseSelfOcclusion   ? 1 : 0);
             aoShader.SetInt("_UseMutualOcclusion", settings.UseMutualOcclusion ? 1 : 0);
 

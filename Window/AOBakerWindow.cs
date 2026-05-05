@@ -202,10 +202,13 @@ namespace DennokoWorks.Tool.AOBaker
                 float maxDistance = EditorGUILayout.Slider(
                     new GUIContent(L("Label_MaxDistance"), L("Tooltip_MaxDistance")),
                     state.AOSettings.MaxDistance, 0.1f, 100f);
+                float bias = EditorGUILayout.Slider(
+                    new GUIContent(L("Label_AOBias"), L("Tooltip_AOBias")),
+                    state.AOSettings.Bias, 0.0001f, 0.1f);
 
                 if (EditorGUI.EndChangeCheck())
                 {
-                    BakeStore.Dispatch(new UpdateAOSettingsAction(state.AOSettings.With(rayCount: rayCount, maxDistance: maxDistance)));
+                    BakeStore.Dispatch(new UpdateAOSettingsAction(state.AOSettings.With(rayCount: rayCount, maxDistance: maxDistance, bias: bias)));
                 }
             }, onReset: () =>
             {

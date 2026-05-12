@@ -144,7 +144,7 @@ namespace DennokoWorks.Tool.AOBaker
 
             // ── Buttons ──────────────────────────────────────────────────────
 
-            ActionButtonStyle = new GUIStyle(GUI.skin.button);
+            ActionButtonStyle = new GUIStyle();
             ActionButtonStyle.normal.background  = _texAccentCard;
             ActionButtonStyle.normal.textColor   = TextPrimary;
             ActionButtonStyle.hover.background   = MakeTex(Color.Lerp(Surface2, Color.white, 0.07f));
@@ -152,12 +152,14 @@ namespace DennokoWorks.Tool.AOBaker
             ActionButtonStyle.active.background  = MakeTex(Color.Lerp(Surface2, Color.white, 0.15f));
             ActionButtonStyle.active.textColor   = TextPrimary;
             ActionButtonStyle.border     = new RectOffset(1, 1, 1, 1);
+            ActionButtonStyle.margin     = new RectOffset(4, 4, 2, 2);
+            ActionButtonStyle.padding    = new RectOffset(8, 8, 4, 4);
             ActionButtonStyle.fontSize   = 13;
             ActionButtonStyle.fontStyle  = FontStyle.Bold;
             ActionButtonStyle.fixedHeight = 34;
             ActionButtonStyle.alignment  = TextAnchor.MiddleCenter;
 
-            SecondaryButtonStyle = new GUIStyle(GUI.skin.button);
+            SecondaryButtonStyle = new GUIStyle();
             SecondaryButtonStyle.normal.background = MakeBorderedTex(Surface1, Outline);
             SecondaryButtonStyle.normal.textColor  = TextSecondary;
             SecondaryButtonStyle.hover.background  = _texAccentCard;
@@ -165,6 +167,8 @@ namespace DennokoWorks.Tool.AOBaker
             SecondaryButtonStyle.active.background = MakeTex(Color.Lerp(Surface1, Color.white, 0.10f));
             SecondaryButtonStyle.active.textColor  = TextPrimary;
             SecondaryButtonStyle.border     = new RectOffset(1, 1, 1, 1);
+            SecondaryButtonStyle.margin     = new RectOffset(4, 4, 2, 2);
+            SecondaryButtonStyle.padding    = new RectOffset(6, 6, 3, 3);
             SecondaryButtonStyle.fontSize   = 11;
             SecondaryButtonStyle.fixedHeight = 26;
             SecondaryButtonStyle.alignment  = TextAnchor.MiddleCenter;

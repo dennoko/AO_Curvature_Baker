@@ -407,6 +407,7 @@ namespace DennokoWorks.Tool.AOBaker
                     }
                     else
                     {
+                        if (newObj != null) CheckAndFixMeshReadability(newObj);
                         list[i] = newObj;
                         list.RemoveAll(go => go == null);
                         BakeStore.Dispatch(new SetTargetMeshesAction(list));
@@ -440,6 +441,7 @@ namespace DennokoWorks.Tool.AOBaker
                 }
                 else if (!list.Contains(addObj))
                 {
+                    CheckAndFixMeshReadability(addObj);
                     list.Add(addObj);
                     BakeStore.Dispatch(new SetTargetMeshesAction(list));
                     GUIUtility.ExitGUI();
@@ -471,6 +473,7 @@ namespace DennokoWorks.Tool.AOBaker
                     }
                     else
                     {
+                        if (newObj != null) CheckAndFixMeshReadability(newObj);
                         list[i] = newObj;
                         list.RemoveAll(go => go == null);
                         BakeStore.Dispatch(new SetOccluderMeshesAction(list));
@@ -504,6 +507,7 @@ namespace DennokoWorks.Tool.AOBaker
                 }
                 else if (!list.Contains(addObj))
                 {
+                    CheckAndFixMeshReadability(addObj);
                     list.Add(addObj);
                     BakeStore.Dispatch(new SetOccluderMeshesAction(list));
                     GUIUtility.ExitGUI();
@@ -525,6 +529,38 @@ namespace DennokoWorks.Tool.AOBaker
         {
             return go.GetComponentInChildren<MeshFilter>() != null
                 || go.GetComponentInChildren<SkinnedMeshRenderer>() != null;
+        }
+
+        private static void CheckAndFixMeshReadability(GameObject go)
+        {
+            Mesh mesh = null;
+            var mf = go.GetComponentInChildren<MeshFilter>();
+            if (mf != null) mesh = mf.sharedMesh;
+            if (mesh == null)
+            {
+                var smr = go.GetComponentInChildren<SkinnedMeshRenderer>();
+                if (smr != null) mesh = smr.sharedMesh;
+            }
+
+            if (mesh == null || mesh.isReadable) return;
+
+            string assetPath = AssetDatabase.GetAssetPath(mesh);
+            if (string.IsNullOrEmpty(assetPath)) return;
+
+            var importer = AssetImporter.GetAtPath(assetPath) as ModelImporter;
+            if (importer == null) return;
+
+            bool doEnable = EditorUtility.DisplayDialog(
+                LocalizationManager.Get("Dialog_ReadWrite_Title"),
+                string.Format(LocalizationManager.Get("Dialog_ReadWrite_Body"), mesh.name),
+                LocalizationManager.Get("Dialog_ReadWrite_Enable"),
+                LocalizationManager.Get("Dialog_ReadWrite_Skip"));
+
+            if (doEnable)
+            {
+                importer.isReadable = true;
+                importer.SaveAndReimport();
+            }
         }
 
         private List<int> GetAvailableUVIndices(IReadOnlyList<GameObject> targets)

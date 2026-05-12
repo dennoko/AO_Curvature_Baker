@@ -86,5 +86,9 @@
   "Error_NoUVChannel": "No valid UV channel found on mesh '{0}'. At least one UV set is required for AO baking.",
   "Error_NotReadable": "Mesh '{0}' is not readable. Enable 'Read/Write Enabled' in the import settings.",
   "Warning_ChildMesh_Title": "Mesh on Child Object",
-  "Warning_ChildMesh_Body": "The target '{0}' has its MeshFilter on a child object '{1}'.\n\nThis tool assumes the mesh is attached directly to the specified GameObject. Bake results may be positionally inaccurate.\n\nFor best results, specify '{1}' directly as the target."
+  "Warning_ChildMesh_Body": "The target '{0}' has its MeshFilter on a child object '{1}'.\n\nThis tool assumes the mesh is attached directly to the specified GameObject. Bake results may be positionally inaccurate.\n\nFor best results, specify '{1}' directly as the target.",
+  "Dialog_ReadWrite_Title": "Read/Write Disabled",
+  "Dialog_ReadWrite_Body": "'{0}' has Read/Write disabled.\n\nAO baking requires read access to the mesh data. Enable it in the import settings now?",
+  "Dialog_ReadWrite_Enable": "Enable",
+  "Dialog_ReadWrite_Skip": "Later"
 }

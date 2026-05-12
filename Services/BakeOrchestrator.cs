@@ -45,6 +45,9 @@ namespace DennokoWorks.Tool.AOBaker
                 float perMesh = 1f / state.TargetMeshes.Count;
 
                 string lastFolder = null;
+                int successCount = 0;
+                var errorMessages = new System.Text.StringBuilder();
+
                 for (int i = 0; i < state.TargetMeshes.Count; i++)
                 {
                     var    go        = state.TargetMeshes[i];
@@ -63,8 +66,10 @@ namespace DennokoWorks.Tool.AOBaker
                     var mesh = ExtractMesh(go, out isBakedMesh);
                     if (mesh == null)
                     {
-                        BakeStore.Dispatch(new BakeErrorAction(
-                            $"{label} {L("Msg_NoMeshFound", go.name)}"));
+                        string msg = $"{label} {L("Msg_NoMeshFound", go.name)}";
+                        Debug.LogError($"[AO Baker] {msg}");
+                        errorMessages.AppendLine(msg);
+                        BakeStore.Dispatch(new BakeErrorAction(msg));
                         continue;
                     }
 
@@ -112,6 +117,7 @@ namespace DennokoWorks.Tool.AOBaker
 
                             SaveTexture(aoResult, go.name, "BakedAO", outputFolder,
                                 outputResolution, outputSettings.OverwriteExisting);
+                            successCount++;
                         }
 
                         // ---- Curvature bake ----
@@ -138,8 +144,10 @@ namespace DennokoWorks.Tool.AOBaker
                     }
                     catch (Exception meshEx)
                     {
-                        BakeStore.Dispatch(new BakeErrorAction(
-                            L("Msg_Skipped", go.name, meshEx.Message)));
+                        string msg = L("Msg_Skipped", go.name, meshEx.Message);
+                        Debug.LogError($"[AO Baker] {msg}\n{meshEx}");
+                        errorMessages.AppendLine(msg);
+                        BakeStore.Dispatch(new BakeErrorAction(msg));
                     }
                     finally
                     {
@@ -175,10 +183,21 @@ namespace DennokoWorks.Tool.AOBaker
                     }
                 }
 
-                BakeStore.Dispatch(new BakeCompletedAction());
+                if (successCount > 0)
+                {
+                    BakeStore.Dispatch(new BakeCompletedAction());
+                }
+                else
+                {
+                    string summary = errorMessages.Length > 0
+                        ? errorMessages.ToString().TrimEnd()
+                        : L("Msg_NoTargetMeshes");
+                    BakeStore.Dispatch(new BakeErrorAction(summary));
+                }
             }
             catch (Exception ex)
             {
+                Debug.LogError($"[AO Baker] Fatal error: {ex}");
                 BakeStore.Dispatch(new BakeErrorAction(ex.Message));
             }
         }

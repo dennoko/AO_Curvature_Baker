@@ -86,5 +86,9 @@
   "Error_NoUVChannel": "メッシュ '{0}' に有効なUVチャンネルが見つかりません。AOベイクには少なくとも1つのUVセットが必要です。",
   "Error_NotReadable": "メッシュ '{0}' が読み取り不可です。インポート設定で 'Read/Write Enabled' をオンにしてください。",
   "Warning_ChildMesh_Title": "子オブジェクトにメッシュがあります",
-  "Warning_ChildMesh_Body": "ターゲット '{0}' のMeshFilterは子オブジェクト '{1}' にあります。\n\nこのツールはメッシュが指定したGameObjectに直接アタッチされていることを想定しています。ベイク結果の位置が不正確になる場合があります。\n\n正確なベイクのため、'{1}' を直接ターゲットとして指定することをおすすめします。"
+  "Warning_ChildMesh_Body": "ターゲット '{0}' のMeshFilterは子オブジェクト '{1}' にあります。\n\nこのツールはメッシュが指定したGameObjectに直接アタッチされていることを想定しています。ベイク結果の位置が不正確になる場合があります。\n\n正確なベイクのため、'{1}' を直接ターゲットとして指定することをおすすめします。",
+  "Dialog_ReadWrite_Title": "Read/Write が無効です",
+  "Dialog_ReadWrite_Body": "'{0}' の Read/Write が無効になっています。\n\nAOベイクにはメッシュへの読み取りアクセスが必要です。インポート設定で有効にしますか？",
+  "Dialog_ReadWrite_Enable": "有効にする",
+  "Dialog_ReadWrite_Skip": "後で"
 }

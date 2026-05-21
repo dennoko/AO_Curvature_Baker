@@ -73,33 +73,42 @@ namespace DennokoWorks.Tool.AOBaker
             }
 
             UniTexTheme.Initialize();
-            actionButtonStyle = UniTexTheme.ActionButtonStyle;
+            UniTexTheme.PushEditorTheme();
 
-            EditorGUI.DrawRect(new Rect(0, 0, position.width, position.height), UniTexTheme.Surface0);
-
-            var state = BakeStore.State;
-
-            DrawHeader();
-
-            _scrollPosition = EditorGUILayout.BeginScrollView(_scrollPosition);
-            
-            if (state.Status == BakeStatus.Baking || state.Status == BakeStatus.Denoising)
+            try
             {
-                DrawProgressArea(state);
-            }
-            else
-            {
-                DrawSettingsArea(state);
-            }
-            
-            EditorGUILayout.EndScrollView();
+                actionButtonStyle = UniTexTheme.ActionButtonStyle;
 
-            if (state.Status != BakeStatus.Baking && state.Status != BakeStatus.Denoising)
-            {
-                DrawFooter(state);
+                EditorGUI.DrawRect(new Rect(0, 0, position.width, position.height), UniTexTheme.Surface0);
+
+                var state = BakeStore.State;
+
+                DrawHeader();
+
+                _scrollPosition = EditorGUILayout.BeginScrollView(_scrollPosition);
+
+                if (state.Status == BakeStatus.Baking || state.Status == BakeStatus.Denoising)
+                {
+                    DrawProgressArea(state);
+                }
+                else
+                {
+                    DrawSettingsArea(state);
+                }
+
+                EditorGUILayout.EndScrollView();
+
+                if (state.Status != BakeStatus.Baking && state.Status != BakeStatus.Denoising)
+                {
+                    DrawFooter(state);
+                }
+
+                DrawStatusBar();
             }
-            
-            DrawStatusBar();
+            finally
+            {
+                UniTexTheme.PopEditorTheme();
+            }
         }
 
         private void DrawHeader()
@@ -619,6 +628,19 @@ namespace DennokoWorks.Tool.AOBaker
             return uvs.Count > 0;
         }
 
+        private int DrawPopup(GUIContent label, int selectedIndex, string[] displayedOptions)
+        {
+            int index = EditorGUILayout.Popup(label, selectedIndex, displayedOptions);
+            if (UniTexTheme.IsOverrideActive)
+            {
+                Rect rect = GUILayoutUtility.GetLastRect();
+                float boxRight = rect.xMax;
+                Rect arrowRect = new Rect(boxRight - 16, rect.y + (rect.height - 12) / 2, 12, 12);
+                GUI.Label(arrowRect, "▼", UniTexTheme.CaptionStyle);
+            }
+            return index;
+        }
+
         private void DrawOutputSettings(BakeState state)
         {
             var settings = state.OutputSettings;
@@ -627,7 +649,7 @@ namespace DennokoWorks.Tool.AOBaker
             // Resolution popup
             int currentIndex = System.Array.IndexOf(ResolutionOptions, settings.OutputResolution);
             if (currentIndex < 0) currentIndex = 3; // fallback to 1024
-            int newIndex = EditorGUILayout.Popup(
+            int newIndex = DrawPopup(
                 new GUIContent(L("Label_OutputRes"),
                     L("Tooltip_OutputRes")),
                 currentIndex, ResolutionLabels);
@@ -648,7 +670,7 @@ namespace DennokoWorks.Tool.AOBaker
             int popupIndex = dynamicValues.IndexOf(currentUV);
             if (popupIndex < 0) popupIndex = 0; // Fallback to Auto if current is not in list
 
-            int newPopupIndex = EditorGUILayout.Popup(
+            int newPopupIndex = DrawPopup(
                 new GUIContent(L("Label_UVChannel"), L("Tooltip_UVChannel")),
                 popupIndex, dynamicLabels.ToArray());
             
@@ -715,7 +737,7 @@ namespace DennokoWorks.Tool.AOBaker
                 settings.OverwriteExisting);
 
             EditorGUILayout.Space(4);
-            EditorGUILayout.LabelField(L("Label_PostProcess"), EditorStyles.boldLabel);
+            EditorGUILayout.LabelField(L("Label_PostProcess"), UniTexTheme.SectionHeaderStyle);
 
             // Dilation
             int dilation = EditorGUILayout.IntSlider(

@@ -116,31 +116,37 @@ namespace DennokoWorks.Tool.AOBaker
 
             // ── Typography ───────────────────────────────────────────────────
 
-            TitleStyle = new GUIStyle(EditorStyles.boldLabel);
+            TitleStyle = new GUIStyle(GUIStyle.none);
             TitleStyle.fontSize = 14;
-            TitleStyle.normal.textColor = TextPrimary;
+            TitleStyle.fontStyle = FontStyle.Bold;
+            ApplyTextColorAllStates(TitleStyle, TextPrimary);
 
-            SectionHeaderStyle = new GUIStyle(EditorStyles.boldLabel);
+            SectionHeaderStyle = new GUIStyle(GUIStyle.none);
             SectionHeaderStyle.fontSize = 10;
-            SectionHeaderStyle.normal.textColor = TextTertiary;
+            SectionHeaderStyle.fontStyle = FontStyle.Bold;
+            ApplyTextColorAllStates(SectionHeaderStyle, TextTertiary);
             SectionHeaderStyle.margin = new RectOffset(0, 0, 0, 2);
 
-            ToggleSectionOnStyle = new GUIStyle(EditorStyles.boldLabel);
+            ToggleSectionOnStyle = new GUIStyle(GUIStyle.none);
             ToggleSectionOnStyle.fontSize = 10;
-            ToggleSectionOnStyle.normal.textColor = TextPrimary;
+            ToggleSectionOnStyle.fontStyle = FontStyle.Bold;
+            ApplyTextColorAllStates(ToggleSectionOnStyle, TextPrimary);
             ToggleSectionOnStyle.margin = new RectOffset(0, 0, 0, 2);
 
-            ToggleSectionOffStyle = new GUIStyle(EditorStyles.boldLabel);
+            ToggleSectionOffStyle = new GUIStyle(GUIStyle.none);
             ToggleSectionOffStyle.fontSize = 10;
-            ToggleSectionOffStyle.normal.textColor = TextTertiary;
+            ToggleSectionOffStyle.fontStyle = FontStyle.Bold;
+            ApplyTextColorAllStates(ToggleSectionOffStyle, TextTertiary);
             ToggleSectionOffStyle.margin = new RectOffset(0, 0, 0, 2);
 
-            SecondaryTextStyle = new GUIStyle(EditorStyles.label);
-            SecondaryTextStyle.normal.textColor = TextSecondary;
+            SecondaryTextStyle = new GUIStyle(GUIStyle.none);
+            SecondaryTextStyle.fontSize = 11;
+            ApplyTextColorAllStates(SecondaryTextStyle, TextSecondary);
             SecondaryTextStyle.wordWrap = true;
 
-            CaptionStyle = new GUIStyle(EditorStyles.miniLabel);
-            CaptionStyle.normal.textColor = TextTertiary;
+            CaptionStyle = new GUIStyle(GUIStyle.none);
+            CaptionStyle.fontSize = 10;
+            ApplyTextColorAllStates(CaptionStyle, TextTertiary);
 
             // ── Buttons ──────────────────────────────────────────────────────
 
@@ -151,6 +157,8 @@ namespace DennokoWorks.Tool.AOBaker
             ActionButtonStyle.hover.textColor    = TextPrimary;
             ActionButtonStyle.active.background  = MakeTex(Color.Lerp(Surface2, Color.white, 0.15f));
             ActionButtonStyle.active.textColor   = TextPrimary;
+            ActionButtonStyle.focused.background = ActionButtonStyle.normal.background;
+            ActionButtonStyle.focused.textColor  = TextPrimary;
             ActionButtonStyle.border     = new RectOffset(1, 1, 1, 1);
             ActionButtonStyle.margin     = new RectOffset(4, 4, 2, 2);
             ActionButtonStyle.padding    = new RectOffset(8, 8, 4, 4);
@@ -166,6 +174,8 @@ namespace DennokoWorks.Tool.AOBaker
             SecondaryButtonStyle.hover.textColor   = TextPrimary;
             SecondaryButtonStyle.active.background = MakeTex(Color.Lerp(Surface1, Color.white, 0.10f));
             SecondaryButtonStyle.active.textColor  = TextPrimary;
+            SecondaryButtonStyle.focused.background = SecondaryButtonStyle.normal.background;
+            SecondaryButtonStyle.focused.textColor  = TextSecondary;
             SecondaryButtonStyle.border     = new RectOffset(1, 1, 1, 1);
             SecondaryButtonStyle.margin     = new RectOffset(4, 4, 2, 2);
             SecondaryButtonStyle.padding    = new RectOffset(6, 6, 3, 3);
@@ -173,21 +183,32 @@ namespace DennokoWorks.Tool.AOBaker
             SecondaryButtonStyle.fixedHeight = 26;
             SecondaryButtonStyle.alignment  = TextAnchor.MiddleCenter;
 
-            MiniButtonStyle = new GUIStyle(EditorStyles.miniButton);
-            MiniButtonStyle.normal.textColor = TextTertiary;
-            MiniButtonStyle.hover.textColor  = TextSecondary;
+            MiniButtonStyle = new GUIStyle();
+            MiniButtonStyle.normal.background = MakeBorderedTex(Surface1, Outline);
+            MiniButtonStyle.hover.background = _texAccentCard;
+            MiniButtonStyle.active.background = MakeTex(Color.Lerp(Surface1, Color.white, 0.10f));
+            MiniButtonStyle.focused.background = MiniButtonStyle.normal.background;
+            MiniButtonStyle.border = new RectOffset(1, 1, 1, 1);
+            MiniButtonStyle.padding = new RectOffset(6, 6, 2, 2);
+            MiniButtonStyle.margin = new RectOffset(0, 0, 0, 0);
+            MiniButtonStyle.alignment = TextAnchor.MiddleCenter;
+            MiniButtonStyle.fontSize = 10;
+            MiniButtonStyle.fixedHeight = 18;
+            ApplyTextColorAllStates(MiniButtonStyle, TextTertiary);
+            MiniButtonStyle.hover.textColor = TextSecondary;
+            MiniButtonStyle.active.textColor = TextPrimary;
 
-            MiniButtonLeftStyle = new GUIStyle(EditorStyles.miniButtonLeft);
-            MiniButtonLeftStyle.normal.textColor = TextTertiary;
-            MiniButtonLeftStyle.hover.textColor  = TextSecondary;
+            MiniButtonLeftStyle = new GUIStyle(MiniButtonStyle);
+            MiniButtonLeftStyle.border = new RectOffset(1, 1, 1, 1);
+            MiniButtonLeftStyle.margin = new RectOffset(0, 0, 0, 0);
 
-            MiniButtonRightStyle = new GUIStyle(EditorStyles.miniButtonRight);
-            MiniButtonRightStyle.normal.textColor = TextTertiary;
-            MiniButtonRightStyle.hover.textColor  = TextSecondary;
+            MiniButtonRightStyle = new GUIStyle(MiniButtonStyle);
+            MiniButtonRightStyle.border = new RectOffset(1, 1, 1, 1);
+            MiniButtonRightStyle.margin = new RectOffset(0, 0, 0, 0);
 
             // ── Status Bar ───────────────────────────────────────────────────
 
-            var statusBase = new GUIStyle(EditorStyles.helpBox);
+            var statusBase = new GUIStyle();
             statusBase.border  = new RectOffset(1, 1, 1, 1);
             statusBase.padding = new RectOffset(8, 8, 5, 5);
             statusBase.margin  = new RectOffset(4, 4, 2, 2);
@@ -247,5 +268,17 @@ namespace DennokoWorks.Tool.AOBaker
             ((rgb >> 16) & 0xFF) / 255f,
             ((rgb >>  8) & 0xFF) / 255f,
             ( rgb        & 0xFF) / 255f);
+
+        private static void ApplyTextColorAllStates(GUIStyle style, Color color)
+        {
+            style.normal.textColor = color;
+            style.hover.textColor = color;
+            style.active.textColor = color;
+            style.focused.textColor = color;
+            style.onNormal.textColor = color;
+            style.onHover.textColor = color;
+            style.onActive.textColor = color;
+            style.onFocused.textColor = color;
+        }
     }
 }

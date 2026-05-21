@@ -715,7 +715,7 @@ namespace DennokoWorks.Tool.AOBaker
                 settings.OverwriteExisting);
 
             EditorGUILayout.Space(4);
-            EditorGUILayout.LabelField(L("Label_PostProcess"), EditorStyles.boldLabel);
+            EditorGUILayout.LabelField(L("Label_PostProcess"), UniTexTheme.SectionHeaderStyle);
 
             // Dilation
             int dilation = EditorGUILayout.IntSlider(

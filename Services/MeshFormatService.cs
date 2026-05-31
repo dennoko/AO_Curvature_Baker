@@ -11,32 +11,57 @@ namespace DennokoWorks.Tool.AOBaker
 
         // Extracts mesh data into ComputeBuffers ready for GPU dispatch.
         // All geometry is transformed to world space using the targetTransform.
+        // All sub-meshes are merged into a single index buffer.
         public BakeContext BuildContext(Mesh mesh, Transform targetTransform, int textureResolution, int uvChannel = -1)
         {
             if (mesh == null)
                 throw new ArgumentNullException(nameof(mesh));
 
+            int[] indices = CollectTriangleIndices(mesh);
+            if (indices.Length == 0)
+                throw new InvalidOperationException($"Mesh '{mesh.name}' has no triangle sub-meshes.");
+
+            return BuildContextCore(mesh, targetTransform, textureResolution, indices, uvChannel);
+        }
+
+        // Extracts mesh data for a single sub-mesh into ComputeBuffers ready for GPU dispatch.
+        // Only the specified sub-mesh's triangles are included in the index buffer;
+        // vertices, normals, and UVs still span the full mesh so indices remain valid.
+        public BakeContext BuildContextForSubMesh(
+            Mesh mesh, Transform targetTransform, int textureResolution, int subMeshIndex, int uvChannel = -1)
+        {
+            if (mesh == null)
+                throw new ArgumentNullException(nameof(mesh));
+            if (subMeshIndex < 0 || subMeshIndex >= mesh.subMeshCount)
+                throw new ArgumentOutOfRangeException(nameof(subMeshIndex),
+                    $"Sub-mesh index {subMeshIndex} is out of range for mesh '{mesh.name}' (subMeshCount={mesh.subMeshCount}).");
+            if (mesh.GetTopology(subMeshIndex) != MeshTopology.Triangles)
+                throw new InvalidOperationException(
+                    $"Sub-mesh {subMeshIndex} of '{mesh.name}' is not triangle topology and cannot be baked.");
+
+            int[] indices = mesh.GetTriangles(subMeshIndex);
+            if (indices.Length == 0)
+                throw new InvalidOperationException(
+                    $"Sub-mesh {subMeshIndex} of '{mesh.name}' has no triangles.");
+
+            return BuildContextCore(mesh, targetTransform, textureResolution, indices, uvChannel);
+        }
+
+        // Shared implementation: builds GPU buffers from caller-supplied indices.
+        private BakeContext BuildContextCore(
+            Mesh mesh, Transform targetTransform, int textureResolution, int[] indices, int uvChannel)
+        {
             if (!mesh.isReadable)
                 throw new InvalidOperationException(L("Error_NotReadable", mesh.name));
 
             Vector3[] vertices = mesh.vertices;
-
             if (vertices == null || vertices.Length == 0)
                 throw new InvalidOperationException($"Mesh '{mesh.name}' has no vertices.");
 
             // Apply world transform
             Matrix4x4 localToWorld = targetTransform.localToWorldMatrix;
             for (int i = 0; i < vertices.Length; i++)
-            {
                 vertices[i] = localToWorld.MultiplyPoint3x4(vertices[i]);
-            }
-
-            // Collect triangle indices from all sub-meshes, filtering out non-Triangle topologies
-            // (e.g. Lines, Points) that would corrupt the index buffer stride.
-            int[] indices = CollectTriangleIndices(mesh);
-
-            if (indices.Length == 0)
-                throw new InvalidOperationException($"Mesh '{mesh.name}' has no triangle sub-meshes.");
 
             // Normals — recalculate if missing or mismatched
             Vector3[] normals = mesh.normals;
@@ -53,14 +78,11 @@ namespace DennokoWorks.Tool.AOBaker
             else
             {
                 for (int i = 0; i < normals.Length; i++)
-                {
                     normals[i] = targetTransform.TransformDirection(normals[i]).normalized;
-                }
             }
 
             // UVs — use the specified channel, or auto-detect starting from channel 0
             Vector2[] uvs = FindValidUVChannel(mesh, vertices.Length, uvChannel);
-
             if (uvs == null)
                 throw new InvalidOperationException(L("Error_NoUVChannel", mesh.name));
 

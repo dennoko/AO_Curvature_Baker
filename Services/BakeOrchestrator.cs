@@ -32,114 +32,184 @@ namespace DennokoWorks.Tool.AOBaker
                     return;
                 }
 
-                bool bakeAO        = true; // AO is always baked when the pipeline runs
+                bool bakeAO        = true;
                 bool bakeCurvature = state.CurvatureSettings.BakeEnabled;
 
-                var outputSettings = state.OutputSettings;
+                var outputSettings   = state.OutputSettings;
                 int outputResolution = outputSettings.OutputResolution;
 
-                // Collect occluder meshes (extract Mesh + Transform pairs)
-                var occluders            = CollectOccluderMeshes(state.OccluderMeshes);
-                var bakedOccluderMeshes  = new List<Mesh>(); // Track baked meshes for cleanup
+                var occluders           = CollectOccluderMeshes(state.OccluderMeshes);
+                var bakedOccluderMeshes = new List<Mesh>();
 
                 float perMesh = 1f / state.TargetMeshes.Count;
 
-                string lastFolder = null;
-                int successCount = 0;
-                var errorMessages = new System.Text.StringBuilder();
+                string lastFolder    = null;
+                int    successCount  = 0;
+                var    errorMessages = new System.Text.StringBuilder();
 
                 for (int i = 0; i < state.TargetMeshes.Count; i++)
                 {
                     var    go        = state.TargetMeshes[i];
                     float  baseRatio = i * perMesh;
-                    string label     = $"[{i + 1}/{state.TargetMeshes.Count}]";
+                    string meshLabel = $"[{i + 1}/{state.TargetMeshes.Count}]";
 
                     Dispatch(BakeStatus.Baking, baseRatio + perMesh * 0.02f,
-                        $"{label} {L("Msg_Preparing", go.name)}");
-
-                    // Resolve output folder for this mesh
-                    string outputFolder = ResolveOutputFolder(go, outputSettings.OutputFolder);
-                    lastFolder = outputFolder;
-                    EnsureOutputFolder(outputFolder);
+                        $"{meshLabel} {L("Msg_Preparing", go.name)}");
 
                     bool isBakedMesh = false;
-                    var mesh = ExtractMesh(go, out isBakedMesh);
+                    var  mesh        = ExtractMesh(go, out isBakedMesh);
                     if (mesh == null)
                     {
-                        string msg = $"{label} {L("Msg_NoMeshFound", go.name)}";
+                        string msg = $"{meshLabel} {L("Msg_NoMeshFound", go.name)}";
                         Debug.LogError($"[AO Baker] {msg}");
                         errorMessages.AppendLine(msg);
                         BakeStore.Dispatch(new BakeErrorAction(msg));
                         continue;
                     }
 
-                    BakeContext       context          = null;
+                    // Collect materials and determine effective submesh count
+                    var      renderer      = go.GetComponentInChildren<Renderer>();
+                    Material[] materials   = renderer != null
+                        ? renderer.sharedMaterials
+                        : System.Array.Empty<Material>();
+                    int subMeshCount    = mesh.subMeshCount;
+                    int effectiveCount  = Mathf.Min(materials.Length, subMeshCount);
+
+                    Debug.Log($"[AO Baker] {meshLabel} '{go.name}': " +
+                        $"マテリアル {materials.Length} 個, サブメッシュ {subMeshCount} 個を認識 " +
+                        $"→ {effectiveCount} 個のテクスチャを出力 (上書き保存: {outputSettings.OverwriteExisting})");
+
+                    if (materials.Length != subMeshCount)
+                        Debug.LogWarning($"[AO Baker] '{go.name}': " +
+                            $"マテリアル数 ({materials.Length}) とサブメッシュ数 ({subMeshCount}) が一致しません。" +
+                            $"{effectiveCount} 個を処理します。");
+
+                    if (effectiveCount == 0)
+                    {
+                        string msg = $"{meshLabel} '{go.name}': 処理対象のサブメッシュがありません。スキップします。";
+                        Debug.LogWarning($"[AO Baker] {msg}");
+                        errorMessages.AppendLine(msg);
+                        if (isBakedMesh && mesh != null) UnityEngine.Object.DestroyImmediate(mesh);
+                        continue;
+                    }
+
+                    // OcclusionGeometry is built once from the full mesh and shared across all submeshes.
+                    // This ensures self-occlusion between submeshes is correctly captured.
                     OcclusionGeometry occlusionGeometry = null;
-                    RenderTexture     aoResult         = null;
-                    RenderTexture     curvatureResult  = null;
                     try
                     {
-                        context = _meshFormat.BuildContext(mesh, go.transform, SamplingResolution, outputSettings.UVChannel);
-
-                        // Build occlusion geometry: target mesh + occluder meshes
                         Dispatch(BakeStatus.Baking, baseRatio + perMesh * 0.05f,
-                            $"{label} {L("Msg_BuildingOcclusion")}");
+                            $"{meshLabel} {L("Msg_BuildingOcclusion")}");
+                        occlusionGeometry = _occlusionBuilder.Build(mesh, go.transform, occluders);
 
-                        Transform targetTransform = go.transform;
-                        occlusionGeometry = _occlusionBuilder.Build(
-                            mesh, targetTransform, occluders);
+                        float perSubMesh = perMesh / effectiveCount;
 
-                        // ---- AO bake ----
-                        if (bakeAO)
+                        for (int sub = 0; sub < effectiveCount; sub++)
                         {
-                            float aoBase = bakeCurvature ? 0.5f : 1.0f;
-                            var innerProgress = new Progress<(float p, string msg)>(t =>
-                            {
-                                float mapped = baseRatio + perMesh * (t.p * aoBase);
-                                BakeStore.Dispatch(new UpdateProgressAction(
-                                    BakeStatus.Baking, mapped, $"{label} [AO] {t.msg}"));
-                            });
+                            float    subStart = baseRatio + sub * perSubMesh;
+                            string   subLabel = effectiveCount > 1
+                                ? $"{meshLabel}[{sub + 1}/{effectiveCount}]"
+                                : meshLabel;
 
-                            aoResult = await _aoBaker.ComputeAOAsync(
-                                context, occlusionGeometry, state.AOSettings, innerProgress);
-
-                            // Post-processing: dilation, blur, shadow colour
-                            var processed = ApplyPostProcess(aoResult, outputSettings, SamplingResolution);
-                            if (!ReferenceEquals(processed, aoResult))
+                            if (mesh.GetTopology(sub) != MeshTopology.Triangles)
                             {
-                                aoResult.Release();
-                                aoResult = processed;
+                                Debug.LogWarning($"[AO Baker] {subLabel} '{go.name}' サブメッシュ {sub}: " +
+                                    "三角形以外のトポロジーのためスキップします。");
+                                continue;
                             }
 
-                            Dispatch(BakeStatus.Baking, baseRatio + perMesh * (aoBase * 0.97f),
-                                $"{label} {L("Msg_SavingAO", go.name)}");
-                            await Task.Yield();
+                            Material mat     = sub < materials.Length ? materials[sub] : null;
+                            string   matName = mat != null && !string.IsNullOrEmpty(mat.name)
+                                ? mat.name
+                                : $"sub{sub}";
 
-                            SaveTexture(aoResult, go.name, "BakedAO", outputFolder,
-                                outputResolution, outputSettings.OverwriteExisting);
-                            successCount++;
-                        }
+                            // Output folder is determined per-material so each material's
+                            // baked texture lands next to its source textures.
+                            string outputFolder = ResolveMaterialOutputFolder(mat, outputSettings.OutputFolder);
+                            EnsureOutputFolder(outputFolder);
+                            if (lastFolder == null) lastFolder = outputFolder;
 
-                        // ---- Curvature bake ----
-                        if (bakeCurvature)
-                        {
-                            float curvStart = bakeAO ? 0.5f : 0.0f;
-                            var curvProgress = new Progress<(float p, string msg)>(t =>
+                            // Texture file name: include material name when multiple submeshes exist
+                            string texBaseName = effectiveCount > 1
+                                ? $"{go.name}_{matName}"
+                                : go.name;
+
+                            BakeContext   subContext      = null;
+                            RenderTexture aoResult        = null;
+                            RenderTexture curvatureResult = null;
+                            try
                             {
-                                float mapped = baseRatio + perMesh * (curvStart + t.p * (1.0f - curvStart));
-                                BakeStore.Dispatch(new UpdateProgressAction(
-                                    BakeStatus.Baking, mapped, $"{label} [Curvature] {t.msg}"));
-                            });
+                                subContext = _meshFormat.BuildContextForSubMesh(
+                                    mesh, go.transform, SamplingResolution, sub, outputSettings.UVChannel);
 
-                            curvatureResult = await _curvatureBaker.ComputeCurvatureAsync(
-                                context, state.CurvatureSettings, curvProgress);
+                                // ---- AO bake ----
+                                if (bakeAO)
+                                {
+                                    float aoBase = bakeCurvature ? 0.5f : 1.0f;
+                                    var innerProgress = new Progress<(float p, string msg)>(t =>
+                                    {
+                                        float mapped = subStart + perSubMesh * (t.p * aoBase);
+                                        BakeStore.Dispatch(new UpdateProgressAction(
+                                            BakeStatus.Baking, mapped, $"{subLabel} [AO] {t.msg}"));
+                                    });
 
-                            Dispatch(BakeStatus.Baking, baseRatio + perMesh * 0.97f,
-                                $"{label} {L("Msg_SavingCurvature", go.name)}");
-                            await Task.Yield();
+                                    aoResult = await _aoBaker.ComputeAOAsync(
+                                        subContext, occlusionGeometry, state.AOSettings, innerProgress);
 
-                            SaveTexture(curvatureResult, go.name, "BakedCurvature", outputFolder,
-                                outputResolution, outputSettings.OverwriteExisting);
+                                    var processed = ApplyPostProcess(aoResult, outputSettings, SamplingResolution);
+                                    if (!ReferenceEquals(processed, aoResult))
+                                    {
+                                        aoResult.Release();
+                                        aoResult = processed;
+                                    }
+
+                                    Dispatch(BakeStatus.Baking, subStart + perSubMesh * (aoBase * 0.97f),
+                                        $"{subLabel} {L("Msg_SavingAO", go.name)}");
+                                    await Task.Yield();
+
+                                    string aoPath = SaveTexture(aoResult, texBaseName, "BakedAO",
+                                        outputFolder, outputResolution, outputSettings.OverwriteExisting);
+                                    Debug.Log($"[AO Baker] {subLabel} '{go.name}' (マテリアル: {matName}): " +
+                                        $"AO テクスチャを保存しました → {aoPath}");
+                                    successCount++;
+                                }
+
+                                // ---- Curvature bake ----
+                                if (bakeCurvature)
+                                {
+                                    float curvStart2 = bakeAO ? 0.5f : 0.0f;
+                                    var curvProgress = new Progress<(float p, string msg)>(t =>
+                                    {
+                                        float mapped = subStart + perSubMesh * (curvStart2 + t.p * (1.0f - curvStart2));
+                                        BakeStore.Dispatch(new UpdateProgressAction(
+                                            BakeStatus.Baking, mapped, $"{subLabel} [Curvature] {t.msg}"));
+                                    });
+
+                                    curvatureResult = await _curvatureBaker.ComputeCurvatureAsync(
+                                        subContext, state.CurvatureSettings, curvProgress);
+
+                                    Dispatch(BakeStatus.Baking, subStart + perSubMesh * 0.97f,
+                                        $"{subLabel} {L("Msg_SavingCurvature", go.name)}");
+                                    await Task.Yield();
+
+                                    string curvPath = SaveTexture(curvatureResult, texBaseName, "BakedCurvature",
+                                        outputFolder, outputResolution, outputSettings.OverwriteExisting);
+                                    Debug.Log($"[AO Baker] {subLabel} '{go.name}' (マテリアル: {matName}): " +
+                                        $"Curvature テクスチャを保存しました → {curvPath}");
+                                }
+                            }
+                            catch (Exception subEx)
+                            {
+                                string msg = $"{subLabel} '{go.name}' (マテリアル: {matName}): {subEx.Message}";
+                                Debug.LogError($"[AO Baker] {msg}\n{subEx}");
+                                errorMessages.AppendLine(msg);
+                            }
+                            finally
+                            {
+                                subContext?.Dispose();
+                                aoResult?.Release();
+                                curvatureResult?.Release();
+                            }
                         }
                     }
                     catch (Exception meshEx)
@@ -151,10 +221,7 @@ namespace DennokoWorks.Tool.AOBaker
                     }
                     finally
                     {
-                        context?.Dispose();
                         occlusionGeometry?.Dispose();
-                        aoResult?.Release();
-                        curvatureResult?.Release();
                         if (isBakedMesh && mesh != null)
                             UnityEngine.Object.DestroyImmediate(mesh);
                     }
@@ -169,7 +236,7 @@ namespace DennokoWorks.Tool.AOBaker
 
                 AssetDatabase.Refresh();
 
-                // Automatically highlight and open the saved folder in the Project window
+                // Highlight the first output folder in the Project window
                 if (!string.IsNullOrEmpty(lastFolder))
                 {
                     var folderAsset = AssetDatabase.LoadAssetAtPath<UnityEngine.Object>(lastFolder);
@@ -177,8 +244,6 @@ namespace DennokoWorks.Tool.AOBaker
                     {
                         Selection.activeObject = folderAsset;
                         EditorGUIUtility.PingObject(folderAsset);
-                        
-                        // Open the folder to show its contents in the Project window
                         AssetDatabase.OpenAsset(folderAsset);
                     }
                 }
@@ -203,22 +268,19 @@ namespace DennokoWorks.Tool.AOBaker
         }
 
         /// <summary>
-        /// Resolves the output folder for a given target mesh.
+        /// Resolves the output folder for a specific material.
         /// If the user specified an output folder, use it.
-        /// Otherwise, try to find the main texture on the target mesh's material,
-        /// and create a BakedAO/ subfolder at that texture's path.
+        /// Otherwise, place the texture next to the material's main texture in a BakedAO/ subfolder.
         /// Falls back to the default folder.
         /// </summary>
-        private static string ResolveOutputFolder(GameObject go, string userFolder)
+        private static string ResolveMaterialOutputFolder(Material mat, string userFolder)
         {
             if (!string.IsNullOrEmpty(userFolder))
                 return userFolder;
 
-            // Try to find the main texture path from the mesh renderer
-            Renderer renderer = go.GetComponentInChildren<Renderer>();
-            if (renderer != null && renderer.sharedMaterial != null)
+            if (mat != null)
             {
-                Texture mainTex = renderer.sharedMaterial.mainTexture;
+                Texture mainTex = mat.mainTexture;
                 if (mainTex != null)
                 {
                     string texPath = AssetDatabase.GetAssetPath(mainTex);
@@ -416,9 +478,9 @@ namespace DennokoWorks.Tool.AOBaker
 
         /// <summary>
         /// Saves a baked RenderTexture to disk with resolution scaling, duplicate name handling,
-        /// and TextureImporter configuration.
+        /// and TextureImporter configuration. Returns the saved asset path.
         /// </summary>
-        private static void SaveTexture(
+        private static string SaveTexture(
             RenderTexture rt, string meshName, string prefix,
             string outputFolder, int outputResolution, bool overwrite)
         {
@@ -473,6 +535,8 @@ namespace DennokoWorks.Tool.AOBaker
 
             // Configure TextureImporter maxSize to match the output resolution
             ConfigureTextureImporter(assetPath, outputResolution);
+
+            return assetPath;
         }
 
         /// <summary>

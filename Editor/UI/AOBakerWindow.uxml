@@ -1,0 +1,143 @@
+<ui:UXML xmlns:ui="UnityEngine.UIElements" xmlns:uie="UnityEditor.UIElements">
+    <!-- 画面パターン P1 変換: 対象を選び、設定して、1 回ベイクする (blocks/patterns.md)。
+         文言はすべて C# の ApplyLanguage が Source/Language/*.json から入れる。ここの text は日本語の見本 -->
+
+    <!-- ───────── 標準ヘッダー: トップバー ───────── -->
+    <ui:VisualElement name="appbar" class="dennoko-appbar">
+        <ui:VisualElement class="dennoko-appbar__title">
+            <ui:Label name="appbar-title" text="Fast AO Baker" class="dennoko-title" />
+        </ui:VisualElement>
+        <ui:VisualElement class="dennoko-appbar__actions">
+            <ui:Button name="appbar-lang" text="EN" class="dennoko-appbar-lang" />
+            <ui:Button name="appbar-manual" class="dennoko-icon-button" />
+            <ui:Button name="appbar-settings" class="dennoko-icon-button" />
+        </ui:VisualElement>
+    </ui:VisualElement>
+
+    <ui:ScrollView name="main-scroll" class="dennoko-scroll">
+
+        <!-- B1 対象カード: ターゲット (入力が 2 つあるので見出しを付ける)。カード全体がドロップ先 -->
+        <ui:VisualElement name="target-card" class="dennoko-card dennoko-target-card" style="margin-top: 8px;">
+            <ui:VisualElement class="dennoko-card-header dennoko-card-header--row">
+                <ui:Label name="target-card-title" text="ターゲット" class="dennoko-section-title dennoko-card-header__title" />
+            </ui:VisualElement>
+            <ui:VisualElement name="target-list" class="fao-object-list" />
+            <ui:VisualElement name="target-empty" class="dennoko-empty-state fao-object-empty">
+                <ui:Label name="target-empty-message" text="ベイクする GameObject をここへドラッグ＆ドロップ" class="dennoko-empty-state__message" />
+            </ui:VisualElement>
+            <ui:VisualElement name="target-info" class="dennoko-info-row">
+                <ui:Label name="target-info-count" text="メッシュ 0" />
+                <ui:Label name="target-info-uv" text="UV0" />
+            </ui:VisualElement>
+            <ui:VisualElement name="target-warning" class="dennoko-inline-warning">
+                <ui:Label name="target-warning-text" text="Read/Write が無効なメッシュがあります" class="dennoko-inline-warning__text" />
+                <ui:Button name="target-fix" text="有効にする" class="dennoko-inline-warning__action" />
+            </ui:VisualElement>
+            <ui:VisualElement class="fao-object-actions">
+                <ui:Label name="target-hint" text="MeshFilter または SkinnedMeshRenderer が必要です" class="dennoko-hint" />
+                <ui:Button name="target-clear" text="すべて外す" class="dennoko-button-secondary" />
+                <ui:Button name="target-from-selection" text="選択から追加" />
+            </ui:VisualElement>
+        </ui:VisualElement>
+
+        <!-- B1 対象カード: 遮蔽物 (影を落とすが自身はベイクされない) -->
+        <ui:VisualElement name="occluder-card" class="dennoko-card dennoko-target-card">
+            <ui:VisualElement class="dennoko-card-header dennoko-card-header--row">
+                <ui:Label name="occluder-card-title" text="遮蔽物メッシュ" class="dennoko-section-title dennoko-card-header__title" />
+            </ui:VisualElement>
+            <ui:VisualElement name="occluder-list" class="fao-object-list" />
+            <ui:VisualElement name="occluder-empty" class="dennoko-empty-state fao-object-empty">
+                <ui:Label name="occluder-empty-message" text="影を落とす GameObject をここへドラッグ＆ドロップ" class="dennoko-empty-state__message" />
+            </ui:VisualElement>
+            <ui:VisualElement class="fao-object-actions">
+                <ui:Label name="occluder-hint" text="ターゲットに影を落としますが、自身はベイクされません" class="dennoko-hint" />
+                <ui:Button name="occluder-clear" text="すべて外す" class="dennoko-button-secondary" />
+                <ui:Button name="occluder-from-selection" text="選択から追加" />
+            </ui:VisualElement>
+        </ui:VisualElement>
+
+        <!-- B2 設定カード: ベイク (基本 AO 設定 + 詳細) -->
+        <ui:VisualElement name="ao-card" class="dennoko-card dennoko-options-card">
+            <ui:VisualElement class="dennoko-card-header dennoko-card-header--row">
+                <ui:Label name="ao-card-title" text="基本AO設定" class="dennoko-section-title dennoko-card-header__title" />
+                <ui:Button name="ao-card-reset" class="dennoko-icon-button" />
+            </ui:VisualElement>
+            <ui:DropdownField name="resolution-field" label="出力解像度" />
+            <ui:DropdownField name="uv-channel-field" label="UVチャンネル" />
+            <ui:VisualElement name="uv-warning" class="dennoko-inline-warning">
+                <ui:Label name="uv-warning-text" text="選択された UV チャンネルが一部のメッシュにありません" class="dennoko-inline-warning__text" />
+                <ui:Button name="uv-warning-fix" text="Auto" class="dennoko-inline-warning__action" />
+            </ui:VisualElement>
+            <ui:Toggle name="self-occlusion-toggle" text="自分自身の影" />
+            <ui:Toggle name="mutual-occlusion-toggle" text="お互いの影" />
+            <ui:Toggle name="low-resource-toggle" text="低リソースモード" />
+            <ui:HelpBox name="low-resource-help" text="低リソースモード" message-type="Info" class="dennoko-helpbox--info" />
+
+            <!-- 詳細: 閉じている間は初期値と違う項目だけをチップで要約 -->
+            <ui:VisualElement name="advanced-details" class="dennoko-details dennoko-details--collapsed">
+                <ui:VisualElement class="dennoko-details__header">
+                    <ui:Label text="▶" class="dennoko-details__arrow" />
+                    <ui:Label name="advanced-title" text="詳細設定" class="dennoko-details__title" />
+                    <ui:VisualElement name="advanced-chips" class="dennoko-details__chips" />
+                </ui:VisualElement>
+                <ui:VisualElement class="dennoko-details__content">
+                    <ui:SliderInt name="ray-count-slider" label="影の細かさ" low-value="16" high-value="512" show-input-field="true" />
+                    <ui:Slider name="max-distance-slider" label="影の広がり" low-value="0.1" high-value="100" show-input-field="true" />
+                    <ui:Slider name="bias-slider" label="レイの浮き (Bias)" low-value="0.0001" high-value="0.1" show-input-field="true" />
+                    <ui:Toggle name="ignore-backfaces-toggle" text="裏面を無視" />
+                </ui:VisualElement>
+            </ui:VisualElement>
+        </ui:VisualElement>
+
+        <!-- B2 設定カード: 影のノイズ除去 (トグル付き。OFF で折りたたむ) -->
+        <ui:VisualElement name="denoise-card" class="dennoko-card dennoko-options-card">
+            <ui:VisualElement class="dennoko-card-header dennoko-card-header--row dennoko-toggle-header">
+                <ui:Toggle name="denoise-toggle" text="影のノイズ除去" class="dennoko-section-title dennoko-card-header__title" />
+                <ui:Button name="denoise-card-reset" class="dennoko-icon-button" />
+            </ui:VisualElement>
+            <ui:VisualElement name="denoise-content" class="dennoko-toggle-section__content">
+                <ui:SliderInt name="denoise-iterations-slider" label="滑らかさ" low-value="1" high-value="5" show-input-field="true" />
+                <ui:Slider name="denoise-sigma-pos-slider" label="形状の維持" low-value="0.01" high-value="5" show-input-field="true" />
+                <ui:Slider name="denoise-sigma-nrm-slider" label="カーブの維持" low-value="1" high-value="256" show-input-field="true" />
+                <ui:Slider name="denoise-sigma-lum-slider" label="影のコントラスト" low-value="0.1" high-value="10" show-input-field="true" />
+            </ui:VisualElement>
+        </ui:VisualElement>
+
+        <!-- B2 設定カード: 仕上げ -->
+        <ui:VisualElement name="post-card" class="dennoko-card dennoko-options-card">
+            <ui:VisualElement class="dennoko-card-header dennoko-card-header--row">
+                <ui:Label name="post-card-title" text="仕上げ設定" class="dennoko-section-title dennoko-card-header__title" />
+                <ui:Button name="post-card-reset" class="dennoko-icon-button" />
+            </ui:VisualElement>
+            <ui:SliderInt name="dilation-slider" label="隙間の穴埋め" low-value="0" high-value="32" show-input-field="true" />
+            <uie:ColorField name="shadow-color-field" label="影の色" />
+            <ui:Toggle name="blur-toggle" text="ぼかし (Gaussian Blur)" />
+            <!-- トグルで制御される項目は囲まず、インデントだけで従属を示す。OFF のときは隠す -->
+            <ui:VisualElement name="blur-group" class="fao-indent">
+                <ui:SliderInt name="blur-passes-slider" label="ぼかしの強さ" low-value="1" high-value="10" show-input-field="true" />
+            </ui:VisualElement>
+        </ui:VisualElement>
+    </ui:ScrollView>
+
+    <!-- ───────── B5 出力ドック (2 行) ───────── -->
+    <ui:VisualElement name="output-dock" class="dennoko-output">
+        <ui:VisualElement class="dennoko-output-row">
+            <ui:Label name="output-path-label" text="出力先" class="dennoko-output__label" />
+            <ui:TextField name="output-path" value="" readonly="true" class="dennoko-field-readonly" />
+            <ui:Button name="output-browse" text="選択…" class="dennoko-output__action" />
+        </ui:VisualElement>
+        <ui:VisualElement class="dennoko-output-row">
+            <ui:Label class="dennoko-output__label" />
+            <ui:Toggle name="overwrite-toggle" text="既存ファイルを上書き" />
+            <ui:VisualElement class="dennoko-spacer" />
+            <ui:Button name="output-auto" text="自動" class="dennoko-output__action" />
+        </ui:VisualElement>
+    </ui:VisualElement>
+
+    <!-- ───────── フッター (主ボタン 1 つ。ベイク中だけ左にキャンセル) ───────── -->
+    <ui:VisualElement class="dennoko-footer dennoko-footer--joined">
+        <ui:Button name="cancel-button" text="キャンセル" class="dennoko-button-secondary" />
+        <ui:Button name="bake-button" text="ベイク" class="dennoko-button-primary" />
+    </ui:VisualElement>
+    <ui:Label name="status-label" text="Ready" class="dennoko-status" />
+</ui:UXML>

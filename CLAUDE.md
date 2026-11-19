@@ -29,7 +29,8 @@
 - `Editor/Services/`: コアロジック。AO計算、BVH構築、メッシュ変換、オーケストレーション、パス解決 (`FastAOBakerPaths`)。
 - `Editor/Shaders/`: UVラスタライズ用シェーダーおよび `Compute/` 内の GPU 計算用 `.compute` ファイル（AO、曲率、ノイズ除去、ポストプロセス）。
 - `Editor/Store/`: `BakeStore` と、状態 (`BakeState`)、アクション、ステータスの定義。
-- `Editor/Window/`: UIの実装 (`AOBakerWindow`) とテーマ設定 (`UniTexTheme`)。
+- `Editor/Window/`: ウィンドウのロジック (`AOBakerWindow`)。
+- `Editor/UI/`: UXML / USS と dennokoworks デザインシステムの共通部品。
 - `Editor/Source/Language/`: 多言語対応（日本語/英語）用の JSON リソース。
 - `Docs/`: マニュアルおよび設計ドキュメント。
 
@@ -42,8 +43,9 @@
 - **テクスチャ生成**: 生成されたテクスチャは `AssetDatabase` を通じて保存され、自動的にインポート設定が調整されます。
 
 ## デザインシステム
-`Editor/Window/UniTexTheme.cs` に独自のカラートークンと `GUIStyle` が定義されています。
-- `Surface0/1/2`: 背景のレイヤー（濃い色から順に重なりを表現）。
-- `CardStyle`: 各セクションを囲む 1px 境界線付きのコンテナ。
-- `ActionButtonStyle`: 下部の「ベイク実行」ボタンに使用される強調スタイル。
-- `TitleStyle`: ヘッダー用の大きなフォント。
+UI は UI Toolkit (UXML/USS) で、`.claude/skills/dennokoworks_color_schema` スキル（画面パターン P1 変換）に従います。UI の改修時はこのスキルを使ってください。
+- `Editor/UI/AOBakerWindow.uxml`: 画面構造（トップバー → 対象カード → 設定カード → 出力ドック → フッター → ステータス）。
+- `Editor/UI/DennokoTheme.uss` / `DennokoBlocks.uss`: スキルからコピーした共通テーマ（直接改変しない）。ツール固有のスタイルは `FastAOBaker.uss`（クラス接頭辞 `fao-`）。
+- `Editor/UI/Dennoko*.cs`: スキルの共通部品（フォント・トップバー・ステータス・アイコン・ブロック接続）。`DennokoStatus` のみ `ReadyText` を言語切替用に追加している。
+- UXML/USS は C# 内の GUID 定数で読み込むため、`.meta` を作り直した場合は `AOBakerWindow.cs` の GUID も更新する。
+- 文言は UXML ではなく `AOBakerWindow.ApplyLanguage()` が JSON から設定する。日本語の文言を追加したら `DennokoUIFont.WarmupJapanese` にも文字を足す。

@@ -8,7 +8,7 @@
 
 ## 開発環境
 
-- **Unity**: 2019.4 以降推奨（Compute Shader 必須）。
+- **Unity**: 2022.3.22f1 以降（Compute Shader・UI Toolkit 必須）。
 - **ビルド/テスト**: Unity エディタ拡張のため、標準的なビルドコマンドはありません。`.cs` ファイルの変更は保存時に Unity によって自動的にコンパイルされます。
 - **ウィンドウの開き方**: Unity メニューの `dennokoworks/Fast AO Baker` から開きます。
 
@@ -30,6 +30,7 @@
 - `Editor/Shaders/`: UVラスタライズ用シェーダーおよび `Compute/` 内の GPU 計算用 `.compute` ファイル（AO、曲率、ノイズ除去、ポストプロセス）。
 - `Editor/Store/`: `BakeStore` と、状態 (`BakeState`)、アクション、ステータスの定義。
 - `Editor/Window/`: ウィンドウのロジック (`AOBakerWindow`)。
+- `Editor/VersionCheck/`: トップバーのバージョン表示と更新チェック。版数はリポジトリ直下の `version.json` で管理する。
 - `Editor/UI/`: UXML / USS と dennokoworks デザインシステムの共通部品。
 - `Editor/Source/Language/`: 多言語対応（日本語/英語）用の JSON リソース。
 - `Docs/`: マニュアルおよび設計ドキュメント。

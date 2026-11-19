@@ -53,8 +53,12 @@ namespace DennokoWorks.Tool.AOBaker
 
                 int res = context.TextureResolution;
                 var mrt = new RenderTargetIdentifier[] { positionRT, normalRT, geomNormalRT };
+                // renderIntoTexture must be false: GL.GetGPUProjectionMatrix with true vertically flips the Y
+                // axis on Direct3D/Metal platforms for camera render targets, but since this is direct UV-to-clip
+                // rasterization whose final result is read back via Texture2D.ReadPixels (which already assumes
+                // bottom-left origin), flipping Y in projection results in upside-down textures.
                 Matrix4x4 gpuProj = GL.GetGPUProjectionMatrix(
-                    Matrix4x4.Ortho(0f, 1f, 0f, 1f, -1f, 1f), true);
+                    Matrix4x4.Ortho(0f, 1f, 0f, 1f, -1f, 1f), false);
 
                 cmd.SetRenderTarget(mrt, mrt[0]);
                 cmd.ClearRenderTarget(false, true, Color.clear);
@@ -97,8 +101,9 @@ namespace DennokoWorks.Tool.AOBaker
 
                 int res = context.TextureResolution;
                 var mrt = new RenderTargetIdentifier[] { positionRT, normalRT };
+                // renderIntoTexture must be false: prevents inverted Y on Direct3D/Metal for ReadPixels export.
                 Matrix4x4 gpuProj = GL.GetGPUProjectionMatrix(
-                    Matrix4x4.Ortho(0f, 1f, 0f, 1f, -1f, 1f), true);
+                    Matrix4x4.Ortho(0f, 1f, 0f, 1f, -1f, 1f), false);
 
                 cmd.SetRenderTarget(mrt, mrt[0]);
                 cmd.ClearRenderTarget(false, true, Color.clear);

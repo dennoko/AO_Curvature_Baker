@@ -25,7 +25,7 @@ namespace DennokoWorks.Tool.AOBaker
         public int    UVChannel           { get; }
 
         public OutputSettings(
-            int    outputResolution    = 1024,
+            int    outputResolution    = 2048,
             string outputFolder        = "",
             bool   overwriteExisting   = false,
             int    dilationPixels      = 8,

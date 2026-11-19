@@ -455,7 +455,7 @@ namespace DennokoWorks.Tool.AOBaker
             _status.Set(L("Msg_SettingsReset"));
         }
 
-        /// <summary>マニュアル (?) はパッケージ同梱の Docs/USAGE*.pdf を開く。</summary>
+        /// <summary>マニュアル (?) はパッケージ同梱の Docs/user_manual_*.pdf を開く。</summary>
         private static string ResolveManualUrl()
         {
             string uxmlPath = AssetDatabase.GUIDToAssetPath(UXML_GUID);
@@ -465,8 +465,15 @@ namespace DennokoWorks.Tool.AOBaker
             string toolRoot = Path.GetDirectoryName(Path.GetDirectoryName(Path.GetDirectoryName(uxmlPath)));
             if (string.IsNullOrEmpty(toolRoot)) return null;
             bool ja = LocalizationManager.CurrentLanguage == Language.Japanese;
-            string file = Path.Combine(toolRoot, "Docs", ja ? "USAGE_ja.pdf" : "USAGE.pdf");
-            if (!File.Exists(file)) return null;
+            string fileName = ja ? "user_manual_ja.pdf" : "user_manual_en.pdf";
+            string file = Path.Combine(toolRoot, "Docs", fileName);
+            if (!File.Exists(file))
+            {
+                // 旧ファイル名へのフォールバック
+                string legacyFile = Path.Combine(toolRoot, "Docs", ja ? "USAGE_ja.pdf" : "USAGE.pdf");
+                if (File.Exists(legacyFile)) file = legacyFile;
+                else return null;
+            }
             return "file:///" + Path.GetFullPath(file).Replace('\\', '/');
         }
 

@@ -42,6 +42,12 @@ namespace DennokoWorks.Tool.AOBaker
 
         private DennokoAppBar _appBar;
         private DennokoStatus _status;
+        private Label _versionLabel;
+        private DennokoVersionChecker.Result _versionResult = new DennokoVersionChecker.Result
+        {
+            State = DennokoVersionChecker.State.Checking,
+            LocalVersion = "0.0.0"
+        };
         private ScrollView _scroll;
 
         // B1 対象カード
@@ -169,6 +175,7 @@ namespace DennokoWorks.Tool.AOBaker
 
             _lastStatus = BakeStore.State.Status;
             ApplyLanguage();
+            StartVersionCheck();
         }
 
         private static void AddStyleSheet(VisualElement root, string guid, string fallbackName)
@@ -213,6 +220,12 @@ namespace DennokoWorks.Tool.AOBaker
                 LocalizationManager.CurrentLanguage = english ? Language.English : Language.Japanese;
                 ApplyLanguage();
             };
+            _appBar.CheckUpdateRequested += () =>
+            {
+                FastAOBakerVersion.ForceRecheck();
+                LoadVersionResultFromSessionState();
+            };
+            _versionLabel = root.Q<Label>("version-label");
 
             InitializeObjectCards(root);
             InitializeAOCard(root);
@@ -726,6 +739,8 @@ namespace DennokoWorks.Tool.AOBaker
             SetToggle(_overwriteToggle, "Label_Overwrite", "Tooltip_Overwrite");
             SetText(_cancelButton, L("Button_Cancel"));
 
+            ApplyVersionLabel();
+
             _targetCard.MarkDirty();
             _occluderCard.MarkDirty();
             SyncFromState();
@@ -750,6 +765,83 @@ namespace DennokoWorks.Tool.AOBaker
             if (field == null) return;
             field.label = L(labelKey).Trim();
             field.tooltip = L(tooltipKey);
+        }
+
+        // ─── バージョンチェック ─────────────────────────────────────────
+
+        private void StartVersionCheck()
+        {
+            LoadVersionResultFromSessionState();
+            FastAOBakerVersion.StartCheckBackgroundTask();
+        }
+
+        /// <summary>チェック結果 (SessionState) を読み、トップバーのバージョン表示に反映する。FastAOBakerVersion からも呼ばれる。</summary>
+        internal void LoadVersionResultFromSessionState()
+        {
+            string local  = FastAOBakerVersion.Current;
+            string latest = SessionState.GetString(FastAOBakerVersion.VerCheckLatestKey, string.Empty);
+            bool   done   = SessionState.GetBool(FastAOBakerVersion.VerCheckDoneKey, false);
+            bool   error  = SessionState.GetBool(FastAOBakerVersion.VerCheckErrorKey, false);
+
+            DennokoVersionChecker.State state;
+            if (!done)
+                state = DennokoVersionChecker.State.Checking;
+            else if (error || string.IsNullOrEmpty(latest))
+                state = DennokoVersionChecker.State.Error;
+            else if (DennokoVersionChecker.IsUpdateAvailable(latest, local))
+                state = DennokoVersionChecker.State.UpdateAvailable;
+            else
+                state = DennokoVersionChecker.State.UpToDate;
+
+            _versionResult = new DennokoVersionChecker.Result
+            {
+                State         = state,
+                LocalVersion  = local,
+                LatestVersion = latest,
+                Url           = SessionState.GetString(FastAOBakerVersion.VerCheckUrlKey, string.Empty),
+                Message       = SessionState.GetString(FastAOBakerVersion.VerCheckMessageKey, string.Empty)
+            };
+            ApplyVersionLabel();
+        }
+
+        private void ApplyVersionLabel()
+        {
+            if (_versionLabel == null) return;
+
+            var r = _versionResult;
+            string baseText = "v" + r.LocalVersion;
+            string text;
+            bool update = false, error = false;
+            switch (r.State)
+            {
+                case DennokoVersionChecker.State.UpdateAvailable:
+                    text = $"{baseText}  " + LF("Version_UpdateAvailable", r.LatestVersion);
+                    update = true;
+                    break;
+                case DennokoVersionChecker.State.Error:
+                    text = $"{baseText}  " + L("Version_Error");
+                    error = true;
+                    break;
+                case DennokoVersionChecker.State.Checking:
+                    text = $"{baseText}  " + L("Version_Checking");
+                    break;
+                default:
+                    text = baseText;
+                    break;
+            }
+            _versionLabel.text = text;
+            _versionLabel.EnableInClassList("dennoko-version-label--update", update);
+            _versionLabel.EnableInClassList("dennoko-version-label--error", error);
+
+            // 更新ありのラベルは公開配布ページを開く。GitHub への直接の導線は作らない
+            bool hasReleasePage = !string.IsNullOrEmpty(r.Url) &&
+                                  r.Url.IndexOf("github.com", StringComparison.OrdinalIgnoreCase) < 0;
+            if (_appBar != null)
+            {
+                _appBar.ReleaseUrl = hasReleasePage ? r.Url : null;
+                _appBar.SetVersionClickable(update && hasReleasePage,
+                    update && hasReleasePage ? L("Version_OpenReleasePage") : null);
+            }
         }
 
         // ─── Read/Write ─────────────────────────────────────────────────

@@ -49,7 +49,8 @@ namespace DennokoWorks.Tool.AOBaker
             "未！剥現凹凸調べ線明整全体平坦ょうグ力ム＆ロ必要ん一像画見容量もチネ初指先ォダ空" +
             "近び既ァ同名前番号付け仕隙穴埋目外側不然ぎ色暗好わ変ぼ結果少回多ふ構築速造法終散" +
             "パ在可子ツ直想位置へ？後…覧個以戻期内換文言入日語標ヘバ違項約▶折む制御囲従属隠" +
-            "主ボ左右↻続共通⋮素探ョ態「」公配布ペニ固→区順段呼ぶ押等（導三点含）";   // UXML / Source/Language/ja.json に出る文字。文言を足したら更新する   // ← ツールに合わせて追記する
+            "主ボ左右↻続共通⋮素探ョ態「」公配布ペニ固→区順段呼ぶ押等（導三点含）" +
+            "版";   // UXML / Source/Language/ja.json に出る文字。文言を足したら更新する   // ← ツールに合わせて追記する
 
         private static FontAsset _font;
         private static bool _unavailable;     // 未搭載環境。CreateFontAsset を再試行しない

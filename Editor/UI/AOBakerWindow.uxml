@@ -6,6 +6,8 @@
     <ui:VisualElement name="appbar" class="dennoko-appbar">
         <ui:VisualElement class="dennoko-appbar__title">
             <ui:Label name="appbar-title" text="Fast AO Baker" class="dennoko-title" />
+            <ui:Label name="version-label" text="" class="dennoko-version-label" />
+            <ui:Button name="version-reload-button" class="dennoko-icon-button" />
         </ui:VisualElement>
         <ui:VisualElement class="dennoko-appbar__actions">
             <ui:Button name="appbar-lang" text="EN" class="dennoko-appbar-lang" />

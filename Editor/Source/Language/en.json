@@ -124,5 +124,9 @@
   "Msg_CardReset": "Card reset to defaults.",
   "Msg_SettingsReset": "Settings reset to defaults.",
   "Msg_SelectAssetsFolder": "Choose a folder inside the project's Assets.",
-  "Dialog_ReadWrite_BodyMulti": "Read/Write is disabled on the following meshes:\n{0}\n\nAO baking needs read access to the mesh. Enable it in the import settings?"
+  "Dialog_ReadWrite_BodyMulti": "Read/Write is disabled on the following meshes:\n{0}\n\nAO baking needs read access to the mesh. Enable it in the import settings?",
+  "Version_UpdateAvailable": "Update available {0}",
+  "Version_Error": "Cannot fetch latest",
+  "Version_Checking": "Checking…",
+  "Version_OpenReleasePage": "Click to open the download page"
 }

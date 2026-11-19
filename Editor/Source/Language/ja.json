@@ -124,5 +124,9 @@
   "Msg_CardReset": "このカードを初期値に戻しました。",
   "Msg_SettingsReset": "設定を初期値に戻しました。",
   "Msg_SelectAssetsFolder": "プロジェクトの Assets 内を選んでください。",
-  "Dialog_ReadWrite_BodyMulti": "以下のメッシュの Read/Write が無効です:\n{0}\n\nAOベイクにはメッシュへの読み取りアクセスが必要です。インポート設定で有効にしますか？"
+  "Dialog_ReadWrite_BodyMulti": "以下のメッシュの Read/Write が無効です:\n{0}\n\nAOベイクにはメッシュへの読み取りアクセスが必要です。インポート設定で有効にしますか？",
+  "Version_UpdateAvailable": "更新あり {0}",
+  "Version_Error": "最新版を取得できません",
+  "Version_Checking": "確認中…",
+  "Version_OpenReleasePage": "クリックで配布ページを開く"
 }

@@ -447,7 +447,7 @@ namespace DennokoWorks.Tool.AOBaker
             var ppShader = GetPostProcessShader();
             if (ppShader == null)
             {
-                Debug.LogWarning($"[AO Baker] PostProcess shader not found at {PostProcessShaderPath}. Skipping post-processing.");
+                Debug.LogWarning($"[AO Baker] PostProcess shader not found at {FastAOBakerPaths.ResolveAssetPath(PostProcessShaderRelativePath)}. Skipping post-processing.");
                 return src;
             }
 

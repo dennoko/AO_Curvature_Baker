@@ -25,21 +25,24 @@
 4. **ポストプロセス**: ノイズ除去（SVGF風）、ダイレーション（穴埋め）、ガウスぼかしの適用。
 
 ### フォルダ構成
-- `Services/`: コアロジック。AO計算、BVH構築、メッシュ変換、オーケストレーション。
-- `Shaders/Compute/`: GPU 計算用の `.compute` ファイル（AO、ノイズ除去、ポストプロセス）。
-- `Store/`: `BakeStore` と、状態 (`BakeState`)、アクション、ステータスの定義。
-- `Window/`: UIの実装 (`AOBakerWindow`) とテーマ設定 (`UniTexTheme`)。
-- `Source/Language/`: 多言語対応（日本語/英語）用の JSON リソース。
+- `Editor/dennokoworks.FastAOBaker.Editor.asmdef`: エディタ専用アセンブリ定義（`includePlatforms: ["Editor"]`）。
+- `Editor/Services/`: コアロジック。AO計算、BVH構築、メッシュ変換、オーケストレーション、パス解決 (`FastAOBakerPaths`)。
+- `Editor/Shaders/`: UVラスタライズ用シェーダーおよび `Compute/` 内の GPU 計算用 `.compute` ファイル（AO、曲率、ノイズ除去、ポストプロセス）。
+- `Editor/Store/`: `BakeStore` と、状態 (`BakeState`)、アクション、ステータスの定義。
+- `Editor/Window/`: UIの実装 (`AOBakerWindow`) とテーマ設定 (`UniTexTheme`)。
+- `Editor/Source/Language/`: 多言語対応（日本語/英語）用の JSON リソース。
+- `Docs/`: マニュアルおよび設計ドキュメント。
 
 ## 主要なパターン
 
 - **Async/Await**: ベイク処理は `ExecuteBakePipelineAsync` により非同期で実行され、エディタのメインスレッドをブロックしません。
 - **Compute Shader ディスパッチ**: GPU へのデータ転送には `ComputeBuffer` を使用します。低リソースモードでは、タイムアウトを監視しながら分割実行する制御が行われます。
-- **ローカライゼーション**: `LocalizationManager.Get(key)` を使用して文字列を取得します。リソースは `Source/Language/` 内の JSON に定義します。
+- **ローカライゼーション**: `LocalizationManager.Get(key)` を使用して文字列を取得します。リソースは `Editor/Source/Language/` 内の JSON に定義します。
+- **アセットパス解決**: シェーダーや翻訳ファイルは `FastAOBakerPaths.LoadAsset<T>(relativePath)` 経由で動的に解決するため、フォルダ移動後も動作します。
 - **テクスチャ生成**: 生成されたテクスチャは `AssetDatabase` を通じて保存され、自動的にインポート設定が調整されます。
 
 ## デザインシステム
-`Window/UniTexTheme.cs` に独自のカラートークンと `GUIStyle` が定義されています。
+`Editor/Window/UniTexTheme.cs` に独自のカラートークンと `GUIStyle` が定義されています。
 - `Surface0/1/2`: 背景のレイヤー（濃い色から順に重なりを表現）。
 - `CardStyle`: 各セクションを囲む 1px 境界線付きのコンテナ。
 - `ActionButtonStyle`: 下部の「ベイク実行」ボタンに使用される強調スタイル。

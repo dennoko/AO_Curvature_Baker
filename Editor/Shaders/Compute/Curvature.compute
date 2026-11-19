@@ -1,0 +1,119 @@
+#pragma kernel ComputeCurvature
+#pragma target 5.0
+
+// --- G-buffer textures (filled by hardware UVRasterizer) ---
+// _PositionMap: xyz = world-space position, w = 1 if valid texel
+// _NormalMap:   xyz = encoded world-space smooth normal (n*0.5+0.5)
+Texture2D<float4> _PositionMap;
+Texture2D<float4> _NormalMap;
+
+// --- Curvature output (grayscale: 0.5 = flat, >0.5 = convex, <0.5 = concave) ---
+RWTexture2D<float4> _CurvatureOutput;
+
+// --- ComputeCurvature parameters ---
+int   _Resolution;
+int   _CurvatureMode; // 0 = Mean, 1 = Gaussian
+float _Strength;      // output scale
+float _Bias;          // output neutral point (default 0.5)
+
+// ---------------------------------------------------------------------------
+// Kernel — ComputeCurvature
+//
+// Uses the first and second fundamental forms (Weingarten equation) for a
+// scale-invariant curvature estimate, including the full cross term F·M
+// so sheared / non-orthogonal UV islands remain accurate.
+// ---------------------------------------------------------------------------
+[numthreads(8, 8, 1)]
+void ComputeCurvature(uint3 id : SV_DispatchThreadID)
+{
+    int px = (int)id.x;
+    int py = (int)id.y;
+    if (px >= _Resolution || py >= _Resolution) return;
+
+    uint2  center  = uint2(px, py);
+    float4 posData = _PositionMap[center];
+
+    // Background texel — write neutral gray
+    if (posData.w < 0.5)
+    {
+        _CurvatureOutput[center] = float4(_Bias, _Bias, _Bias, 1.0);
+        return;
+    }
+
+    int2 lim = int2(_Resolution - 1, _Resolution - 1);
+    int2 cR  = clamp(int2(px + 1, py),     int2(0, 0), lim);
+    int2 cL  = clamp(int2(px - 1, py),     int2(0, 0), lim);
+    int2 cU  = clamp(int2(px, py + 1),     int2(0, 0), lim);
+    int2 cD  = clamp(int2(px, py - 1),     int2(0, 0), lim);
+
+    float4 posR4 = _PositionMap[cR];
+    float4 posL4 = _PositionMap[cL];
+    float4 posU4 = _PositionMap[cU];
+    float4 posD4 = _PositionMap[cD];
+
+    float3 posC = posData.xyz;
+
+    float dR = posR4.w > 0.5 ? length(posR4.xyz - posC) : 0.0;
+    float dL = posL4.w > 0.5 ? length(posL4.xyz - posC) : 0.0;
+    float dU = posU4.w > 0.5 ? length(posU4.xyz - posC) : 0.0;
+    float dD = posD4.w > 0.5 ? length(posD4.xyz - posC) : 0.0;
+
+    const float SeamRatio = 10.0;
+    bool hasR = posR4.w > 0.5, hasL = posL4.w > 0.5;
+    bool hasU = posU4.w > 0.5, hasD = posD4.w > 0.5;
+
+    bool seamR = hasR && hasL && (dR > dL * SeamRatio);
+    bool seamL = hasR && hasL && (dL > dR * SeamRatio);
+    bool seamU = hasU && hasD && (dU > dD * SeamRatio);
+    bool seamD = hasU && hasD && (dD > dU * SeamRatio);
+
+    float3 posR = (hasR && !seamR) ? posR4.xyz : (hasL && !seamL ? 2.0 * posC - posL4.xyz : posC);
+    float3 posL = (hasL && !seamL) ? posL4.xyz : (hasR && !seamR ? 2.0 * posC - posR4.xyz : posC);
+    float3 posU = (hasU && !seamU) ? posU4.xyz : (hasD && !seamD ? 2.0 * posC - posD4.xyz : posC);
+    float3 posD = (hasD && !seamD) ? posD4.xyz : (hasU && !seamU ? 2.0 * posC - posU4.xyz : posC);
+
+    float3 nC = normalize(_NormalMap[center].xyz * 2.0 - 1.0);
+
+    float3 nRraw = (posR4.w > 0.5) ? normalize(_NormalMap[cR].xyz * 2.0 - 1.0) : nC;
+    float3 nLraw = (posL4.w > 0.5) ? normalize(_NormalMap[cL].xyz * 2.0 - 1.0) : nC;
+    float3 nUraw = (posU4.w > 0.5) ? normalize(_NormalMap[cU].xyz * 2.0 - 1.0) : nC;
+    float3 nDraw = (posD4.w > 0.5) ? normalize(_NormalMap[cD].xyz * 2.0 - 1.0) : nC;
+
+    float3 nR_s = (hasR && !seamR) ? nRraw : ((hasL && !seamL) ? 2.0 * nC - nLraw : nC);
+    float3 nL_s = (hasL && !seamL) ? nLraw : ((hasR && !seamR) ? 2.0 * nC - nRraw : nC);
+    float3 nU_s = (hasU && !seamU) ? nUraw : ((hasD && !seamD) ? 2.0 * nC - nDraw : nC);
+    float3 nD_s = (hasD && !seamD) ? nDraw : ((hasU && !seamU) ? 2.0 * nC - nUraw : nC);
+
+    // First fundamental form (metric)
+    float3 dp_dx = (posR - posL) * 0.5;
+    float3 dp_dy = (posU - posD) * 0.5;
+    float E    = dot(dp_dx, dp_dx);
+    float F    = dot(dp_dx, dp_dy);
+    float G    = dot(dp_dy, dp_dy);
+    float EGF2 = E * G - F * F;
+
+    // Second fundamental form via the Weingarten equation
+    float3 dn_dx = (nR_s - nL_s) * 0.5;
+    float3 dn_dy = (nU_s - nD_s) * 0.5;
+    float Lcoeff = -dot(dn_dx, dp_dx);
+    float Ncoeff = -dot(dn_dy, dp_dy);
+    float Mcoeff = -0.5 * (dot(dn_dx, dp_dy) + dot(dn_dy, dp_dx));
+
+    float maxEG = max(E, G);
+    float denom = max(EGF2, maxEG * maxEG * 1e-6);
+
+    float curvature = 0.0;
+    if (_CurvatureMode == 0)
+    {
+        // Full Mean curvature H = -(G·L - 2·F·M + E·N) / (2·(EG - F²))
+        curvature = -(G * Lcoeff - 2.0 * F * Mcoeff + E * Ncoeff) / (2.0 * denom);
+    }
+    else
+    {
+        // Gaussian curvature K = (L·N - M²) / (EG - F²)
+        curvature = (Lcoeff * Ncoeff - Mcoeff * Mcoeff) / denom;
+    }
+
+    float curvature01 = saturate(curvature * _Strength * 0.5 + _Bias);
+    _CurvatureOutput[center] = float4(curvature01, curvature01, curvature01, 1.0);
+}

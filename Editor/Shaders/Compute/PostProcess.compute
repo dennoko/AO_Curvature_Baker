@@ -1,0 +1,214 @@
+#pragma kernel GaussianBlurH
+#pragma kernel GaussianBlurV
+#pragma kernel JFAInit
+#pragma kernel JFAStep
+#pragma kernel JFAApply
+#pragma kernel ApplyShadowColor
+#pragma target 5.0
+
+// _Input: source (.r = AO, .a = 0 means background/outside UV island, .a = 1 means valid)
+Texture2D<float4>   _Input;
+RWTexture2D<float4> _Output;
+
+// Jump Flooding Algorithm seed coordinate ping-pong buffers (RGFloat)
+Texture2D<float2>   _SeedIn;
+RWTexture2D<float2> _SeedOut;
+
+int    _Resolution;
+int    _DilationRadius;
+int    _JumpStep;
+float4 _ShadowColor;
+
+// 9-tap 1D Gaussian weights (sigma=1.5), normalized so their sum equals 1.
+static const float GK[9] = {
+    0.00762, 0.03607, 0.10959, 0.21344,
+    0.26654,
+    0.21344, 0.10959, 0.03607, 0.00762
+};
+
+// ---------------------------------------------------------------------------
+// Kernel: GaussianBlurH (1D horizontal 9-tap pass, valid UV texels only)
+// Runs BEFORE dilation so padding pixels never bleed back into UV islands.
+// ---------------------------------------------------------------------------
+[numthreads(8, 8, 1)]
+void GaussianBlurH(uint3 id : SV_DispatchThreadID)
+{
+    if ((int)id.x >= _Resolution || (int)id.y >= _Resolution) return;
+
+    float4 center = _Input[int2(id.xy)];
+    if (center.a < 0.5)
+    {
+        _Output[id.xy] = center;
+        return;
+    }
+
+    float sumAO     = 0.0;
+    float weightSum = 0.0;
+
+    [unroll]
+    for (int dx = -4; dx <= 4; dx++)
+    {
+        int sx = (int)id.x + dx;
+        if (sx < 0 || sx >= _Resolution) continue;
+
+        float4 s = _Input[int2(sx, (int)id.y)];
+        if (s.a < 0.5) continue;
+
+        float w = GK[dx + 4];
+        sumAO     += s.r * w;
+        weightSum += w;
+    }
+
+    float ao = (weightSum > 0.0) ? (sumAO / weightSum) : center.r;
+    _Output[id.xy] = float4(ao, center.g, center.b, 1.0);
+}
+
+// ---------------------------------------------------------------------------
+// Kernel: GaussianBlurV (1D vertical 9-tap pass, valid UV texels only)
+// ---------------------------------------------------------------------------
+[numthreads(8, 8, 1)]
+void GaussianBlurV(uint3 id : SV_DispatchThreadID)
+{
+    if ((int)id.x >= _Resolution || (int)id.y >= _Resolution) return;
+
+    float4 center = _Input[int2(id.xy)];
+    if (center.a < 0.5)
+    {
+        _Output[id.xy] = center;
+        return;
+    }
+
+    float sumAO     = 0.0;
+    float weightSum = 0.0;
+
+    [unroll]
+    for (int dy = -4; dy <= 4; dy++)
+    {
+        int sy = (int)id.y + dy;
+        if (sy < 0 || sy >= _Resolution) continue;
+
+        float4 s = _Input[int2((int)id.x, sy)];
+        if (s.a < 0.5) continue;
+
+        float w = GK[dy + 4];
+        sumAO     += s.r * w;
+        weightSum += w;
+    }
+
+    float ao = (weightSum > 0.0) ? (sumAO / weightSum) : center.r;
+    _Output[id.xy] = float4(ao, center.g, center.b, 1.0);
+}
+
+// ---------------------------------------------------------------------------
+// Jump Flooding Algorithm (JFA) Dilation — O(log2(R)) passes instead of O(R^2)
+// ---------------------------------------------------------------------------
+[numthreads(8, 8, 1)]
+void JFAInit(uint3 id : SV_DispatchThreadID)
+{
+    if ((int)id.x >= _Resolution || (int)id.y >= _Resolution) return;
+
+    float4 s = _Input[int2(id.xy)];
+    _SeedOut[id.xy] = (s.a > 0.5) ? float2(id.xy) : float2(-1.0, -1.0);
+}
+
+[numthreads(8, 8, 1)]
+void JFAStep(uint3 id : SV_DispatchThreadID)
+{
+    if ((int)id.x >= _Resolution || (int)id.y >= _Resolution) return;
+
+    float2 p        = float2(id.xy);
+    float2 bestSeed = float2(-1.0, -1.0);
+    float  bestDist = 1e30;
+
+    [unroll]
+    for (int dy = -1; dy <= 1; dy++)
+    {
+        [unroll]
+        for (int dx = -1; dx <= 1; dx++)
+        {
+            int2 q = int2(id.xy) + int2(dx * _JumpStep, dy * _JumpStep);
+            if (q.x < 0 || q.x >= _Resolution || q.y < 0 || q.y >= _Resolution)
+                continue;
+
+            float2 seed = _SeedIn[q];
+            if (seed.x < 0.0) continue;
+
+            float2 d      = seed - p;
+            float  distSq = dot(d, d);
+            if (distSq < bestDist)
+            {
+                bestDist = distSq;
+                bestSeed = seed;
+            }
+        }
+    }
+
+    _SeedOut[id.xy] = bestSeed;
+}
+
+[numthreads(8, 8, 1)]
+void JFAApply(uint3 id : SV_DispatchThreadID)
+{
+    if ((int)id.x >= _Resolution || (int)id.y >= _Resolution) return;
+
+    float4 center = _Input[int2(id.xy)];
+    if (center.a > 0.5)
+    {
+        _Output[id.xy] = center;
+        return;
+    }
+
+    float2 seed = _SeedIn[int2(id.xy)];
+    if (seed.x >= 0.0)
+    {
+        float2 d        = seed - float2(id.xy);
+        float  maxDistSq = float(_DilationRadius * _DilationRadius);
+        if (dot(d, d) <= maxDistSq)
+        {
+            float4 src = _Input[int2(seed + 0.5)];
+            _Output[id.xy] = float4(src.r, src.g, src.b, 1.0);
+            return;
+        }
+    }
+
+    _Output[id.xy] = float4(1.0, 0.0, 0.0, 0.0);
+}
+
+// ---------------------------------------------------------------------------
+// Kernel: ApplyShadowColor (+ Triangular Dithering for band-free 8-bit export)
+// Maps AO value: fully lit (ao=1) -> white, fully shadowed (ao=0) -> _ShadowColor.
+// Background pixels become opaque white. Alpha is always written as 1.
+// ---------------------------------------------------------------------------
+float HashIGN(float2 p)
+{
+    float3 magic = float3(0.06711056, 0.00583715, 52.9829189);
+    return frac(magic.z * frac(dot(p, magic.xy)));
+}
+
+[numthreads(8, 8, 1)]
+void ApplyShadowColor(uint3 id : SV_DispatchThreadID)
+{
+    if ((int)id.x >= _Resolution || (int)id.y >= _Resolution) return;
+
+    float4 color = _Input[int2(id.xy)];
+    float3 finalRGB;
+
+    if (color.a > 0.5)
+    {
+        float ao = saturate(color.r);
+        finalRGB = lerp(_ShadowColor.rgb, float3(1.0, 1.0, 1.0), ao);
+
+        // 1-LSB triangular-PDF dither to prevent 8-bit banding in smooth gradients
+        float2 pix = float2(id.xy);
+        float  n1  = HashIGN(pix);
+        float  n2  = HashIGN(float2(pix.y + 17.0, pix.x + 31.0));
+        float  tri = (n1 + n2 - 1.0) * (0.5 / 255.0);
+        finalRGB   = saturate(finalRGB + tri);
+    }
+    else
+    {
+        finalRGB = float3(1.0, 1.0, 1.0); // background -> opaque white
+    }
+
+    _Output[id.xy] = float4(finalRGB, 1.0);
+}

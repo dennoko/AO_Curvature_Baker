@@ -1,0 +1,339 @@
+#pragma kernel BuildActiveTexels
+#pragma kernel TraceAO
+#pragma target 5.0
+
+// --- BVH node layout (must match BVHNodeGPU in C#: 32 bytes) ---
+struct BVHNode
+{
+    float3 boundsMin;
+    int    leftFirst; // leaf: first tri in _PackedTris; internal: left child idx (right = leftFirst + 1)
+    float3 boundsMax;
+    int    count;     // 0 = internal; >0 = leaf
+};
+
+// --- Packed triangle layout in BVH leaf order (must match PackedTriGPU in C#: 48 bytes) ---
+struct PackedTri
+{
+    float3 p0;
+    int    triId; // >= 0 for target mesh triangles (exact self-hit skip), -1 for occluders
+    float3 e1;    // p1 - p0
+    float  pad1;
+    float3 e2;    // p2 - p0
+    float  pad2;
+};
+
+// --- BVH acceleration (built from occlusion geometry, leaf-ordered) ---
+StructuredBuffer<BVHNode>   _BVHNodes;
+StructuredBuffer<PackedTri> _PackedTris;
+
+// --- G-Buffer textures (filled by hardware UVRasterizer) ---
+// _PositionMap:   xyz = world-space position, w = globalTriId + 1 (>=1 if valid, 0 if background)
+// _NormalMap:     xyz = encoded smooth normal (n*0.5+0.5)
+// _GeomNormalMap: xyz = encoded flat geometric normal (n*0.5+0.5)
+Texture2D<float4> _PositionMap;
+Texture2D<float4> _NormalMap;
+Texture2D<float4> _GeomNormalMap;
+
+// --- Active texel compaction buffers ---
+RWStructuredBuffer<uint> _ActiveTexels;
+RWStructuredBuffer<uint> _ActiveCount;
+StructuredBuffer<uint>   _ActiveTexelsRead;
+
+// --- AO output: .r = AO, .g = sample-mean variance, .b = 0, .a = validMask (1 or 0) ---
+RWTexture2D<float4> _AOOutput;
+
+// --- Shared / TraceAO parameters ---
+int   _Resolution;
+int   _OccTriangleCount;
+int   _RayCount;
+float _MaxDistance;
+float _Bias;
+int   _IgnoreBackfaces;
+
+// --- 1D chunked dispatch parameters ---
+uint  _TexelOffset;
+uint  _TexelCount;
+
+// ---------------------------------------------------------------------------
+// Utilities
+// ---------------------------------------------------------------------------
+
+// Möller–Trumbore ray-triangle intersection using precomputed edges e1, e2.
+bool RayTriangleIntersect(
+    float3 ro, float3 rd,
+    float3 p0, float3 e1, float3 e2,
+    float maxDist, out float tHit)
+{
+    tHit = maxDist;
+    float3 h = cross(rd, e2);
+    float  a = dot(e1, h);
+
+    if (_IgnoreBackfaces != 0)
+    {
+        if (a < 1e-8) return false;
+    }
+    else
+    {
+        if (abs(a) < 1e-8) return false;
+    }
+
+    float  f = rcp(a);
+    float3 s = ro - p0;
+    float  u = f * dot(s, h);
+    if (u < 0.0 || u > 1.0) return false;
+
+    float3 q = cross(s, e1);
+    float  v = f * dot(rd, q);
+    if (v < 0.0 || (u + v) > 1.0) return false;
+
+    float t = f * dot(e2, q);
+    if (t < 1e-6 || t >= maxDist) return false;
+
+    tHit = t;
+    return true;
+}
+
+// Slab-method ray-AABB test. Returns clamped entry distance tNear if hit within [0, maxDist), else 1e30.
+float RayAABBDist(float3 ro, float3 invRd, float3 mn, float3 mx, float maxDist)
+{
+    float3 t0   = (mn - ro) * invRd;
+    float3 t1   = (mx - ro) * invRd;
+    float3 tMin = min(t0, t1);
+    float3 tMax = max(t0, t1);
+    float  tN   = max(max(tMin.x, tMin.y), tMin.z);
+    float  tF   = min(min(tMax.x, tMax.y), tMax.z);
+    return (tF >= max(tN, 0.0) && tN < maxDist) ? max(tN, 0.0) : 1e30;
+}
+
+// Closest-hit front-to-back BVH traversal with child AABB pre-testing and stack distance pruning.
+bool TraceRayBVHClosest(float3 ro, float3 rd, float maxDist, int selfTriId, out float tHit)
+{
+    float closestT = maxDist;
+    bool  hit      = false;
+
+    float3 invRd = float3(
+        abs(rd.x) > 1e-8 ? rcp(rd.x) : 1e30,
+        abs(rd.y) > 1e-8 ? rcp(rd.y) : 1e30,
+        abs(rd.z) > 1e-8 ? rcp(rd.z) : 1e30);
+
+    BVHNode root = _BVHNodes[0];
+    if (RayAABBDist(ro, invRd, root.boundsMin, root.boundsMax, closestT) >= closestT)
+    {
+        tHit = maxDist;
+        return false;
+    }
+
+    int   stackIdx[64];
+    float stackDist[64];
+    int   top     = 0;
+    int   nodeIdx = 0;
+
+    [loop]
+    while (nodeIdx >= 0)
+    {
+        BVHNode node    = _BVHNodes[nodeIdx];
+        int     nextIdx = -1;
+
+        if (node.count > 0) // leaf
+        {
+            int first = node.leftFirst;
+            int end   = first + node.count;
+            [loop]
+            for (int k = first; k < end; k++)
+            {
+                PackedTri tri = _PackedTris[k];
+                if (tri.triId == selfTriId) continue;
+
+                float currentT;
+                if (RayTriangleIntersect(ro, rd, tri.p0, tri.e1, tri.e2, closestT, currentT))
+                {
+                    closestT = currentT;
+                    hit      = true;
+                }
+            }
+        }
+        else // internal — test both children and traverse nearer child first
+        {
+            int leftIdx  = node.leftFirst;
+            int rightIdx = leftIdx + 1;
+
+            BVHNode leftNode  = _BVHNodes[leftIdx];
+            BVHNode rightNode = _BVHNodes[rightIdx];
+
+            float dL = RayAABBDist(ro, invRd, leftNode.boundsMin,  leftNode.boundsMax,  closestT);
+            float dR = RayAABBDist(ro, invRd, rightNode.boundsMin, rightNode.boundsMax, closestT);
+
+            bool hitL = dL < closestT;
+            bool hitR = dR < closestT;
+
+            if (hitL && hitR)
+            {
+                if (dL <= dR)
+                {
+                    if (top < 64) { stackIdx[top] = rightIdx; stackDist[top] = dR; top++; }
+                    nextIdx = leftIdx;
+                }
+                else
+                {
+                    if (top < 64) { stackIdx[top] = leftIdx; stackDist[top] = dL; top++; }
+                    nextIdx = rightIdx;
+                }
+            }
+            else if (hitL)
+            {
+                nextIdx = leftIdx;
+            }
+            else if (hitR)
+            {
+                nextIdx = rightIdx;
+            }
+        }
+
+        if (nextIdx >= 0)
+        {
+            nodeIdx = nextIdx;
+        }
+        else
+        {
+            nodeIdx = -1;
+            [loop]
+            while (top > 0)
+            {
+                top--;
+                if (stackDist[top] < closestT)
+                {
+                    nodeIdx = stackIdx[top];
+                    break;
+                }
+            }
+        }
+    }
+
+    tHit = closestT;
+    return hit;
+}
+
+// Branchless orthonormal basis (Duff et al. 2017) — computed once per texel.
+void BuildOrthonormalBasis(float3 n, out float3 tangent, out float3 bitangent)
+{
+    float s = n.z >= 0.0 ? 1.0 : -1.0;
+    float a = -1.0 / (s + n.z);
+    float b = n.x * n.y * a;
+    tangent   = float3(1.0 + s * n.x * n.x * a, s * b, -s * n.x);
+    bitangent = float3(b, s + n.y * n.y * a, -n.y);
+}
+
+// Interleaved Gradient Noise (blue-noise-like high-frequency spatial distribution).
+float InterleavedGradientNoise(float2 pixel)
+{
+    float3 magic = float3(0.06711056, 0.00583715, 52.9829189);
+    return frac(magic.z * frac(dot(pixel, magic.xy)));
+}
+
+// ---------------------------------------------------------------------------
+// Kernel 1 — BuildActiveTexels
+// Compacts valid UV texels into a dense 1D list so TraceAO runs at 100%
+// occupancy with zero wasted threads on empty background pixels.
+// ---------------------------------------------------------------------------
+[numthreads(8, 8, 1)]
+void BuildActiveTexels(uint3 id : SV_DispatchThreadID)
+{
+    if ((int)id.x >= _Resolution || (int)id.y >= _Resolution) return;
+
+    if (_PositionMap[id.xy].w > 0.5)
+    {
+        uint slot;
+        InterlockedAdd(_ActiveCount[0], 1, slot);
+        _ActiveTexels[slot] = (id.y << 16) | id.x;
+    }
+    else
+    {
+        // Background texel: ao=1, var=0, validMask=0
+        _AOOutput[id.xy] = float4(1.0, 0.0, 0.0, 0.0);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Kernel 2 — TraceAO (1D compacted active-texel chunked dispatch)
+// ---------------------------------------------------------------------------
+[numthreads(64, 1, 1)]
+void TraceAO(uint3 id : SV_DispatchThreadID)
+{
+    if (id.x >= _TexelCount) return;
+
+    uint  packed   = _ActiveTexelsRead[_TexelOffset + id.x];
+    uint2 texCoord = uint2(packed & 0xFFFFu, packed >> 16);
+
+    if (_OccTriangleCount <= 0)
+    {
+        _AOOutput[texCoord] = float4(1.0, 0.0, 0.0, 1.0);
+        return;
+    }
+
+    float4 posData   = _PositionMap[texCoord];
+    float3 worldPos  = posData.xyz;
+    int    selfTriId = (int)(posData.w + 0.5) - 1;
+
+    float3 smoothNormal = normalize(_NormalMap[texCoord].xyz * 2.0 - 1.0);
+    float3 geomNormal   = normalize(_GeomNormalMap[texCoord].xyz * 2.0 - 1.0);
+
+    // Offset ray origin along the geometric normal with scale-adaptive minimum bias
+    // to prevent smooth-normal self-intersection (shadow terminator artifacts).
+    float maxAbsCoord   = max(max(abs(worldPos.x), abs(worldPos.y)), abs(worldPos.z));
+    float effectiveBias = max(_Bias, maxAbsCoord * 1e-5);
+    float3 rayOrigin    = worldPos + geomNormal * effectiveBias;
+
+    // Build orthonormal basis once for all rays of this texel.
+    float3 tangent, bitangent;
+    BuildOrthonormalBasis(smoothNormal, tangent, bitangent);
+
+    // Dual IGN per-pixel offsets for Cranley-Patterson rotation of the QMC Fibonacci hemisphere.
+    float2 pixF = float2(texCoord);
+    float  ignAzimuth = InterleavedGradientNoise(pixF);
+    float  ignRadial  = InterleavedGradientNoise(float2(pixF.y + 13.0, pixF.x + 37.0));
+
+    float sumOcc   = 0.0;
+    float sumOccSq = 0.0;
+    float invRayCount = rcp(max((float)_RayCount, 1.0));
+    float invMaxDist  = rcp(max(_MaxDistance, 1e-6));
+
+    for (int r = 0; r < _RayCount; r++)
+    {
+        // Stratified Golden-Angle Fibonacci cosine-weighted hemisphere sampling
+        float u1 = clamp(((float)r + ignRadial) * invRayCount, 0.0001, 0.9999);
+        float u2 = frac((float)r * 0.61803398875 + ignAzimuth);
+
+        float sinTheta = sqrt(u1);
+        float cosTheta = sqrt(1.0 - u1);
+        float phi      = 6.28318530718 * u2;
+
+        float sinPhi, cosPhi;
+        sincos(phi, sinPhi, cosPhi);
+
+        float3 rayDir = cosTheta * smoothNormal
+                      + sinTheta * (cosPhi * tangent + sinPhi * bitangent);
+
+        // Shadow terminator mitigation: lift rays that dip below the flat geometric plane
+        float ndg = dot(rayDir, geomNormal);
+        if (ndg < 0.01)
+        {
+            rayDir = normalize(rayDir + geomNormal * (0.01 - ndg));
+        }
+
+        float tHit;
+        if (TraceRayBVHClosest(rayOrigin, rayDir, _MaxDistance, selfTriId, tHit))
+        {
+            float falloff = saturate(1.0 - tHit * invMaxDist);
+            sumOcc   += falloff;
+            sumOccSq += falloff * falloff;
+        }
+    }
+
+    float meanOcc   = sumOcc * invRayCount;
+    float ao        = 1.0 - meanOcc;
+    // Exact per-pixel variance of the sample mean (no cross-edge spatial contamination)
+    float sampleVar = max(0.0, sumOccSq * invRayCount - meanOcc * meanOcc);
+    float meanVar   = sampleVar * rcp(max((float)(_RayCount - 1), 1.0));
+
+    _AOOutput[texCoord] = float4(ao, meanVar, 0.0, 1.0);
+}

@@ -1,0 +1,122 @@
+#pragma kernel ATrousFilter
+#pragma target 5.0
+
+// --- G-buffer (read-only, for edge-stopping) ---
+Texture2D<float4> _PositionMap;
+Texture2D<float4> _NormalMap;
+
+// --- Packed ping-pong AO+Variance buffers (.r = AO, .g = variance, .a = validMask) ---
+Texture2D<float4>   _AOIn;
+RWTexture2D<float4> _AOOut;
+
+// --- Parameters ---
+int   _Resolution;
+int   _StepWidth;     // ATrousFilter: 1, 2, 4, 8, 16
+float _SigmaPos;      // position   edge-stopping (already scaled relative to scene/MaxDistance)
+float _SigmaNrm;      // normal     edge-stopping exponent
+float _SigmaLum;      // luminance  edge-stopping
+
+// 3×3 a-trous kernel weights
+static const float kW[3][3] =
+{
+    { 1.0/16.0, 1.0/8.0, 1.0/16.0 },
+    { 1.0/8.0,  1.0/4.0, 1.0/8.0  },
+    { 1.0/16.0, 1.0/8.0, 1.0/16.0 }
+};
+
+// ---------------------------------------------------------------------------
+// Kernel — ATrousFilter
+// Variance-guided edge-stopping a-trous wavelet filter (SVGF).
+// Pre-filters center variance with a 3×3 Gaussian (step=1) for firefly suppression
+// while operating on exact per-pixel MC variance computed in TraceAO.
+// ---------------------------------------------------------------------------
+[numthreads(8, 8, 1)]
+void ATrousFilter(uint3 id : SV_DispatchThreadID)
+{
+    int px = (int)id.x;
+    int py = (int)id.y;
+    if (px >= _Resolution || py >= _Resolution) return;
+
+    uint2 center = uint2(px, py);
+
+    // Invalid (background) texel — pass through unchanged.
+    if (_PositionMap[center].w < 0.5)
+    {
+        _AOOut[center] = _AOIn[center];
+        return;
+    }
+
+    int2 maxCoord = int2(_Resolution - 1, _Resolution - 1);
+
+    float3 posC = _PositionMap[center].xyz;
+    float3 nrmC = normalize(_NormalMap[center].xyz * 2.0 - 1.0);
+    float  aoC  = _AOIn[center].r;
+
+    // 3×3 Gaussian pre-filter of variance (Schied et al. SVGF) over valid neighbours
+    float varSum = 0.0;
+    float varW   = 0.0;
+    [unroll]
+    for (int vy = -1; vy <= 1; vy++)
+    {
+        [unroll]
+        for (int vx = -1; vx <= 1; vx++)
+        {
+            int2 vc = clamp(int2(px + vx, py + vy), int2(0, 0), maxCoord);
+            if (_PositionMap[vc].w < 0.5) continue;
+            float vw = kW[vy + 1][vx + 1];
+            varSum += vw * _AOIn[vc].g;
+            varW   += vw;
+        }
+    }
+    float filteredVarC = (varW > 0.0) ? (varSum / varW) : _AOIn[center].g;
+
+    float invSigmaPos2 = rcp(_SigmaPos * _SigmaPos + 1e-6);
+    float invLumDenom  = rcp(_SigmaLum * sqrt(max(1e-5, filteredVarC)) + 1e-4);
+
+    float sumAO  = 0.0;
+    float sumVar = 0.0;
+    float sumW   = 0.0;
+
+    [unroll]
+    for (int dy = -1; dy <= 1; dy++)
+    {
+        [unroll]
+        for (int dx = -1; dx <= 1; dx++)
+        {
+            int2 q = clamp(int2(px + dx * _StepWidth, py + dy * _StepWidth),
+                           int2(0, 0), maxCoord);
+
+            float4 posQ = _PositionMap[q];
+            if (posQ.w < 0.5) continue; // skip background neighbours
+
+            float3 nrmQ = normalize(_NormalMap[q].xyz * 2.0 - 1.0);
+            float4 aoQ4 = _AOIn[q];
+            float  aoQ  = aoQ4.r;
+            float  varQ = aoQ4.g;
+
+            // Position edge-stopping
+            float3 dp   = posQ.xyz - posC;
+            float  wPos = exp(-dot(dp, dp) * invSigmaPos2);
+
+            // Normal edge-stopping
+            float  wNrm = pow(max(0.0, dot(nrmC, nrmQ)), _SigmaNrm);
+
+            // Luminance edge-stopping (variance-guided)
+            float  dLum = abs(aoQ - aoC);
+            float  wLum = exp(-dLum * invLumDenom);
+
+            float kw = kW[dy + 1][dx + 1];
+            float w  = kw * wPos * wNrm * wLum;
+
+            sumAO  += w * aoQ;
+            sumVar += w * w * varQ;
+            sumW   += w;
+        }
+    }
+
+    float invSumW     = rcp(max(sumW, 1e-4));
+    float filteredAO  = sumAO * invSumW;
+    float filteredVar = sumVar * (invSumW * invSumW);
+
+    _AOOut[center] = float4(filteredAO, filteredVar, 0.0, 1.0);
+}

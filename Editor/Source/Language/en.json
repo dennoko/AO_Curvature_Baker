@@ -116,7 +116,7 @@
   "Msg_NoMeshComponent": "No MeshFilter / SkinnedMeshRenderer: {0}",
   "Warning_UVChannelMissing": "Selected UV is missing on some meshes",
   "Label_OutputFolderShort": "Output",
-  "Label_OutputAuto": "(Auto) next to the model",
+  "Label_OutputAuto": "Auto",
   "Button_Browse": "Browse…",
   "Button_Auto": "Auto",
   "Tooltip_OutputAuto": "Reset the output folder to automatic (next to the model)",

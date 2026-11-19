@@ -116,7 +116,7 @@
   "Msg_NoMeshComponent": "MeshFilter / SkinnedMeshRenderer がありません: {0}",
   "Warning_UVChannelMissing": "選択した UV が一部のメッシュにありません",
   "Label_OutputFolderShort": "出力先",
-  "Label_OutputAuto": "(自動) モデルの近くに保存",
+  "Label_OutputAuto": "自動",
   "Button_Browse": "選択…",
   "Button_Auto": "自動",
   "Tooltip_OutputAuto": "保存先を自動 (モデルの近く) に戻します",

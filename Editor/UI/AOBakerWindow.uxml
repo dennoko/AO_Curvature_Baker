@@ -134,6 +134,10 @@
             <ui:VisualElement class="dennoko-spacer" />
             <ui:Button name="output-auto" text="自動" class="dennoko-output__action" />
         </ui:VisualElement>
+        <ui:VisualElement class="dennoko-output-row">
+            <ui:Label class="dennoko-output__label" />
+            <ui:Toggle name="combine-targets-toggle" text="1枚のテクスチャにまとめる" />
+        </ui:VisualElement>
     </ui:VisualElement>
 
     <!-- ───────── フッター (主ボタン 1 つ。ベイク中だけ左にキャンセル) ───────── -->

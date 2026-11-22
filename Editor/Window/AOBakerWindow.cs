@@ -107,6 +107,7 @@ namespace DennokoWorks.Tool.AOBaker
         private Button _outputBrowse;
         private Button _outputAuto;
         private Toggle _overwriteToggle;
+        private Toggle _combineTargetsToggle;
         private Button _cancelButton;
         private Button _bakeButton;
 
@@ -385,14 +386,16 @@ namespace DennokoWorks.Tool.AOBaker
             _outputPathLabel = root.Q<Label>("output-path-label");
             _outputPathField = root.Q<TextField>("output-path");
             _outputBrowse    = root.Q<Button>("output-browse");
-            _outputAuto      = root.Q<Button>("output-auto");
-            _overwriteToggle = root.Q<Toggle>("overwrite-toggle");
-            _cancelButton    = root.Q<Button>("cancel-button");
-            _bakeButton      = root.Q<Button>("bake-button");
+            _outputAuto            = root.Q<Button>("output-auto");
+            _overwriteToggle       = root.Q<Toggle>("overwrite-toggle");
+            _combineTargetsToggle  = root.Q<Toggle>("combine-targets-toggle");
+            _cancelButton          = root.Q<Button>("cancel-button");
+            _bakeButton            = root.Q<Button>("bake-button");
 
             if (_outputBrowse != null) _outputBrowse.clicked += BrowseOutputFolder;
             if (_outputAuto != null) _outputAuto.clicked += () => SetOutput(o => o.With(outputFolder: ""));
-            BindValue(_overwriteToggle, v => SetOutput(o => o.With(overwriteExisting: v)));
+            BindValue(_overwriteToggle,      v => SetOutput(o => o.With(overwriteExisting: v)));
+            BindValue(_combineTargetsToggle, v => SetOutput(o => o.With(combineTargetMeshes: v)));
 
             if (_bakeButton != null) _bakeButton.clicked += StartBake;
             if (_cancelButton != null)
@@ -531,6 +534,7 @@ namespace DennokoWorks.Tool.AOBaker
             if (_outputPathField != null) _outputPathField.tooltip = L("Tooltip_OutputFolder");
             DennokoBlockUI.Show(_outputAuto, !auto);
             _overwriteToggle?.SetValueWithoutNotify(output.OverwriteExisting);
+            _combineTargetsToggle?.SetValueWithoutNotify(output.CombineTargetMeshes);
 
             // 作業中は設定と出力を触らせない
             bool baking = IsBaking;
@@ -744,6 +748,7 @@ namespace DennokoWorks.Tool.AOBaker
             SetText(_outputAuto, L("Button_Auto"));
             if (_outputAuto != null) _outputAuto.tooltip = L("Tooltip_OutputAuto");
             SetToggle(_overwriteToggle, "Label_Overwrite", "Tooltip_Overwrite");
+            SetToggle(_combineTargetsToggle, "Label_CombineTargets", "Tooltip_CombineTargets");
             SetText(_cancelButton, L("Button_Cancel"));
 
             ApplyVersionLabel();

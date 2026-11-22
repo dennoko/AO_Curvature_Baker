@@ -11,9 +11,23 @@ namespace DennokoWorks.Tool.AOBaker
     /// </summary>
     public class OcclusionGeometryBuilder
     {
-        public async Task<OcclusionGeometry> BuildAsync(
+        public Task<OcclusionGeometry> BuildAsync(
             Mesh targetMesh,
             Transform targetTransform,
+            IReadOnlyList<(Mesh mesh, Transform transform)> occluders,
+            bool includeSelf,
+            bool includeMutual,
+            CancellationToken cancellationToken = default)
+        {
+            var targets = (targetMesh != null && targetTransform != null)
+                ? new[] { (targetMesh, targetTransform) }
+                : System.Array.Empty<(Mesh, Transform)>();
+
+            return BuildAsync(targets, occluders, includeSelf, includeMutual, cancellationToken);
+        }
+
+        public async Task<OcclusionGeometry> BuildAsync(
+            IReadOnlyList<(Mesh mesh, Transform transform)> targets,
             IReadOnlyList<(Mesh mesh, Transform transform)> occluders,
             bool includeSelf,
             bool includeMutual,
@@ -22,30 +36,49 @@ namespace DennokoWorks.Tool.AOBaker
             var sourceTris = new List<BVHBuilder.SourceTri>();
             int targetTriCount = 0;
 
-            // 1. Target mesh (only included when self-occlusion is enabled)
-            if (includeSelf && targetMesh != null && targetTransform != null)
+            // 1. Target mesh(es) (only included when self-occlusion is enabled)
+            if (includeSelf && targets != null && targets.Count > 0)
             {
-                AppendMeshTriangles(
-                    targetMesh, targetTransform.localToWorldMatrix,
-                    sourceTris, assignSequentialTriId: true);
+                int sequentialId = 0;
+                for (int i = 0; i < targets.Count; i++)
+                {
+                    var (targetMesh, targetTransform) = targets[i];
+                    if (targetMesh == null || targetTransform == null) continue;
+
+                    AppendMeshTriangles(
+                        targetMesh, targetTransform.localToWorldMatrix,
+                        sourceTris, assignSequentialTriId: true, ref sequentialId);
+                }
                 targetTriCount = sourceTris.Count;
             }
 
             // 2. Occluder meshes (only included when mutual occlusion is enabled)
             if (includeMutual && occluders != null && occluders.Count > 0)
             {
+                int unusedId = 0;
                 for (int i = 0; i < occluders.Count; i++)
                 {
                     var (occMesh, occTransform) = occluders[i];
                     if (occMesh == null || occTransform == null) continue;
 
-                    // Deduplicate if the user accidentally added the same target object to Occluders
-                    if (occTransform == targetTransform && occMesh == targetMesh)
-                        continue;
+                    // Deduplicate if the user accidentally added any target object to Occluders
+                    bool isDuplicate = false;
+                    if (targets != null)
+                    {
+                        for (int t = 0; t < targets.Count; t++)
+                        {
+                            if (occTransform == targets[t].transform && occMesh == targets[t].mesh)
+                            {
+                                isDuplicate = true;
+                                break;
+                            }
+                        }
+                    }
+                    if (isDuplicate) continue;
 
                     AppendMeshTriangles(
                         occMesh, occTransform.localToWorldMatrix,
-                        sourceTris, assignSequentialTriId: false);
+                        sourceTris, assignSequentialTriId: false, ref unusedId);
                 }
             }
 
@@ -70,7 +103,8 @@ namespace DennokoWorks.Tool.AOBaker
             Mesh mesh,
             Matrix4x4 matrix,
             List<BVHBuilder.SourceTri> output,
-            bool assignSequentialTriId)
+            bool assignSequentialTriId,
+            ref int sequentialId)
         {
             Vector3[] verts = mesh.vertices;
             if (verts == null || verts.Length == 0) return;
@@ -91,7 +125,6 @@ namespace DennokoWorks.Tool.AOBaker
                     worldVerts[v] = matrix.MultiplyPoint3x4(verts[v]);
             }
 
-            int sequentialId = 0;
             for (int sub = 0; sub < mesh.subMeshCount; sub++)
             {
                 if (mesh.GetTopology(sub) != MeshTopology.Triangles)

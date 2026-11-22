@@ -61,6 +61,8 @@
   "Tooltip_OutputFolder": "空の場合は自動でモデルの近くに保存されます。自分で場所を選びたい場合は設定してください。",
   "Label_Overwrite": "既存ファイルを上書き",
   "Tooltip_Overwrite": "オフにすると、同じ名前のファイルがある場合に番号を付けて新しく保存します。",
+  "Label_CombineTargets": "1枚のテクスチャにまとめる",
+  "Tooltip_CombineTargets": "複数のターゲットメッシュ（およびサブメッシュ）を1枚のテクスチャにまとめてベイクします。UVが重ならないように配置されている場合に使用してください。",
   "Label_PostProcess": "仕上げ設定",
   "Label_Dilation": "隙間の穴埋め",
   "Tooltip_Dilation": "テクスチャの切れ目の隙間を外側に広げて埋めます。モデルに不自然な線が出るのを防ぎます。",

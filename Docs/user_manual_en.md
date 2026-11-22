@@ -14,7 +14,7 @@ From top to bottom, the window consists of:
 3. **Basic AO Settings Card** — resolution, UV channel, self/mutual occlusion, low-resource mode, and "Advanced" settings
 4. **Shadow Smoothing Card** — edge-preserving SVGF denoising toggle and smoothing parameters
 5. **Finishing Touches Card** — edge filling (dilation), shadow color, and Gaussian blur
-6. **Output Dock** — destination folder and overwrite settings
+6. **Output Dock** — destination folder, overwrite, and texture combine settings
 7. **Bake / Cancel Buttons** and **Status Bar**
 
 When resized, the middle card area scrolls while the Top Bar and bottom controls (Output dock, Bake button, Status bar) remain fixed in view.
@@ -135,6 +135,9 @@ Configures destination folder and filename collisions.
 - **Overwrite Existing**:
   - **ON**: Replaces existing textures with the same name.
   - **OFF**: Appends an incremental number (e.g. `TextureName 1.png`) if a file already exists.
+- **Combine into Single Texture**:
+  - **ON**: Bakes all registered target meshes (and their submeshes) into a single shared texture. Use this when multiple meshes share a non-overlapping UV layout. When combining multiple meshes, the output is saved as `BakedAO_<FirstMeshName>_Combined.png`.
+  - **OFF (default)**: Outputs separate textures for each target mesh and submesh (material).
 
 ---
 

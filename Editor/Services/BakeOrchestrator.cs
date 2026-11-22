@@ -52,209 +52,220 @@ namespace DennokoWorks.Tool.AOBaker
 
                 var occluders = CollectOccluderMeshes(state.OccluderMeshes, bakedOccluderMeshes);
 
-                float perMesh = 1f / state.TargetMeshes.Count;
-
                 string lastFolder    = null;
                 int    successCount  = 0;
                 var    errorMessages = new System.Text.StringBuilder();
 
-                for (int i = 0; i < state.TargetMeshes.Count; i++)
+                if (outputSettings.CombineTargetMeshes)
                 {
-                    cancellationToken.ThrowIfCancellationRequested();
+                    var combined = await ExecuteCombinedBakeAsync(
+                        state, occluders, outputSettings, outputResolution,
+                        bakeAO, bakeCurvature, savedAssets, errorMessages, cancellationToken);
+                    successCount = combined.successCount;
+                    lastFolder   = combined.outputFolder;
+                }
+                else
+                {
+                    float perMesh = 1f / state.TargetMeshes.Count;
 
-                    var    go        = state.TargetMeshes[i];
-                    float  baseRatio = i * perMesh;
-                    string meshLabel = $"[{i + 1}/{state.TargetMeshes.Count}]";
-
-                    Dispatch(BakeStatus.Baking, baseRatio + perMesh * 0.02f,
-                        $"{meshLabel} {L("Msg_Preparing", go.name)}");
-
-                    var mesh = ExtractMesh(go, out Transform meshTransform, out Renderer renderer, out bool isBakedMesh);
-                    if (mesh == null)
+                    for (int i = 0; i < state.TargetMeshes.Count; i++)
                     {
-                        string msg = $"{meshLabel} {L("Msg_NoMeshFound", go.name)}";
-                        Debug.LogError($"[AO Baker] {msg}");
-                        errorMessages.AppendLine(msg);
-                        BakeStore.Dispatch(new BakeErrorAction(msg));
-                        continue;
-                    }
+                        cancellationToken.ThrowIfCancellationRequested();
 
-                    Material[] materials = renderer != null
-                        ? renderer.sharedMaterials
-                        : Array.Empty<Material>();
-                    int subMeshCount   = mesh.subMeshCount;
-                    int effectiveCount = Mathf.Min(materials.Length, subMeshCount);
+                        var    go        = state.TargetMeshes[i];
+                        float  baseRatio = i * perMesh;
+                        string meshLabel = $"[{i + 1}/{state.TargetMeshes.Count}]";
 
-                    Debug.Log($"[AO Baker] {meshLabel} '{go.name}': " +
-                        $"マテリアル {materials.Length} 個, サブメッシュ {subMeshCount} 個を認識 " +
-                        $"→ {effectiveCount} 個のテクスチャを出力 ({outputResolution}px, 上書き保存: {outputSettings.OverwriteExisting})");
+                        Dispatch(BakeStatus.Baking, baseRatio + perMesh * 0.02f,
+                            $"{meshLabel} {L("Msg_Preparing", go.name)}");
 
-                    if (materials.Length != subMeshCount)
-                        Debug.LogWarning($"[AO Baker] '{go.name}': " +
-                            $"マテリアル数 ({materials.Length}) とサブメッシュ数 ({subMeshCount}) が一致しません。" +
-                            $"{effectiveCount} 個を処理します。");
-
-                    if (effectiveCount == 0)
-                    {
-                        string msg = $"{meshLabel} '{go.name}': 処理対象のサブメッシュがありません。スキップします。";
-                        Debug.LogWarning($"[AO Baker] {msg}");
-                        errorMessages.AppendLine(msg);
-                        if (isBakedMesh && mesh != null) UnityEngine.Object.DestroyImmediate(mesh);
-                        continue;
-                    }
-
-                    // OcclusionGeometry and PreparedMeshData are built ONCE per target mesh and
-                    // shared across all submeshes (using the actual renderer/proxy Transform).
-                    OcclusionGeometry occlusionGeometry = null;
-                    PreparedMeshData  preparedMesh      = null;
-                    try
-                    {
-                        Dispatch(BakeStatus.Baking, baseRatio + perMesh * 0.05f,
-                            $"{meshLabel} {L("Msg_BuildingBVH")}");
-                        await Task.Yield();
-
-                        occlusionGeometry = await _occlusionBuilder.BuildAsync(
-                            mesh, meshTransform, occluders,
-                            state.AOSettings.UseSelfOcclusion,
-                            state.AOSettings.UseMutualOcclusion,
-                            cancellationToken);
-
-                        preparedMesh = _meshFormat.PrepareMesh(
-                            mesh, meshTransform, outputSettings.UVChannel);
-
-                        float perSubMesh = perMesh / effectiveCount;
-
-                        for (int sub = 0; sub < effectiveCount; sub++)
+                        var mesh = ExtractMesh(go, out Transform meshTransform, out Renderer renderer, out bool isBakedMesh);
+                        if (mesh == null)
                         {
-                            cancellationToken.ThrowIfCancellationRequested();
+                            string msg = $"{meshLabel} {L("Msg_NoMeshFound", go.name)}";
+                            Debug.LogError($"[AO Baker] {msg}");
+                            errorMessages.AppendLine(msg);
+                            BakeStore.Dispatch(new BakeErrorAction(msg));
+                            continue;
+                        }
 
-                            float  subStart = baseRatio + sub * perSubMesh;
-                            string subLabel = effectiveCount > 1
-                                ? $"{meshLabel}[{sub + 1}/{effectiveCount}]"
-                                : meshLabel;
+                        Material[] materials = renderer != null
+                            ? renderer.sharedMaterials
+                            : Array.Empty<Material>();
+                        int subMeshCount   = mesh.subMeshCount;
+                        int effectiveCount = Mathf.Min(materials.Length, subMeshCount);
 
-                            if (mesh.GetTopology(sub) != MeshTopology.Triangles)
+                        Debug.Log($"[AO Baker] {meshLabel} '{go.name}': " +
+                            $"マテリアル {materials.Length} 個, サブメッシュ {subMeshCount} 個を認識 " +
+                            $"→ {effectiveCount} 個のテクスチャを出力 ({outputResolution}px, 上書き保存: {outputSettings.OverwriteExisting})");
+
+                        if (materials.Length != subMeshCount)
+                            Debug.LogWarning($"[AO Baker] '{go.name}': " +
+                                $"マテリアル数 ({materials.Length}) とサブメッシュ数 ({subMeshCount}) が一致しません。" +
+                                $"{effectiveCount} 個を処理します。");
+
+                        if (effectiveCount == 0)
+                        {
+                            string msg = $"{meshLabel} '{go.name}': 処理対象のサブメッシュがありません。スキップします。";
+                            Debug.LogWarning($"[AO Baker] {msg}");
+                            errorMessages.AppendLine(msg);
+                            if (isBakedMesh && mesh != null) UnityEngine.Object.DestroyImmediate(mesh);
+                            continue;
+                        }
+
+                        // OcclusionGeometry and PreparedMeshData are built ONCE per target mesh and
+                        // shared across all submeshes (using the actual renderer/proxy Transform).
+                        OcclusionGeometry occlusionGeometry = null;
+                        PreparedMeshData  preparedMesh      = null;
+                        try
+                        {
+                            Dispatch(BakeStatus.Baking, baseRatio + perMesh * 0.05f,
+                                $"{meshLabel} {L("Msg_BuildingBVH")}");
+                            await Task.Yield();
+
+                            occlusionGeometry = await _occlusionBuilder.BuildAsync(
+                                mesh, meshTransform, occluders,
+                                state.AOSettings.UseSelfOcclusion,
+                                state.AOSettings.UseMutualOcclusion,
+                                cancellationToken);
+
+                            preparedMesh = _meshFormat.PrepareMesh(
+                                mesh, meshTransform, outputSettings.UVChannel);
+
+                            float perSubMesh = perMesh / effectiveCount;
+
+                            for (int sub = 0; sub < effectiveCount; sub++)
                             {
-                                Debug.LogWarning($"[AO Baker] {subLabel} '{go.name}' サブメッシュ {sub}: " +
-                                    "三角形以外のトポロジーのためスキップします。");
-                                continue;
-                            }
+                                cancellationToken.ThrowIfCancellationRequested();
 
-                            Material mat     = sub < materials.Length ? materials[sub] : null;
-                            string   matName = mat != null && !string.IsNullOrEmpty(mat.name)
-                                ? mat.name
-                                : $"sub{sub}";
+                                float  subStart = baseRatio + sub * perSubMesh;
+                                string subLabel = effectiveCount > 1
+                                    ? $"{meshLabel}[{sub + 1}/{effectiveCount}]"
+                                    : meshLabel;
 
-                            string outputFolder = ResolveMaterialOutputFolder(mat, outputSettings.OutputFolder);
-                            EnsureOutputFolder(outputFolder);
-                            if (lastFolder == null) lastFolder = outputFolder;
-
-                            string texBaseName = effectiveCount > 1
-                                ? $"{go.name}_{matName}"
-                                : go.name;
-
-                            BakeContext   subContext      = null;
-                            RenderTexture aoResult        = null;
-                            RenderTexture curvatureResult = null;
-                            try
-                            {
-                                subContext = _meshFormat.CreateSubMeshContext(
-                                    preparedMesh, outputResolution, sub);
-
-                                // ---- AO bake ----
-                                if (bakeAO)
+                                if (mesh.GetTopology(sub) != MeshTopology.Triangles)
                                 {
-                                    float aoBase = bakeCurvature ? 0.5f : 1.0f;
-                                    var innerProgress = new Progress<(float p, string msg)>(t =>
-                                    {
-                                        float mapped = subStart + perSubMesh * (t.p * aoBase);
-                                        BakeStore.Dispatch(new UpdateProgressAction(
-                                            BakeStatus.Baking, mapped, $"{subLabel} [AO] {t.msg}"));
-                                    });
+                                    Debug.LogWarning($"[AO Baker] {subLabel} '{go.name}' サブメッシュ {sub}: " +
+                                        "三角形以外のトポロジーのためスキップします。");
+                                    continue;
+                                }
 
-                                    aoResult = await _aoBaker.ComputeAOAsync(
-                                        subContext, occlusionGeometry, state.AOSettings,
-                                        innerProgress, cancellationToken);
+                                Material mat     = sub < materials.Length ? materials[sub] : null;
+                                string   matName = mat != null && !string.IsNullOrEmpty(mat.name)
+                                    ? mat.name
+                                    : $"sub{sub}";
 
-                                    var processed = ApplyPostProcess(aoResult, outputSettings, outputResolution);
-                                    if (!ReferenceEquals(processed, aoResult))
+                                string outputFolder = ResolveMaterialOutputFolder(mat, outputSettings.OutputFolder);
+                                EnsureOutputFolder(outputFolder);
+                                if (lastFolder == null) lastFolder = outputFolder;
+
+                                string texBaseName = effectiveCount > 1
+                                    ? $"{go.name}_{matName}"
+                                    : go.name;
+
+                                BakeContext   subContext      = null;
+                                RenderTexture aoResult        = null;
+                                RenderTexture curvatureResult = null;
+                                try
+                                {
+                                    subContext = _meshFormat.CreateSubMeshContext(
+                                        preparedMesh, outputResolution, sub);
+
+                                    // ---- AO bake ----
+                                    if (bakeAO)
                                     {
-                                        aoResult.Release();
-                                        aoResult = processed;
+                                        float aoBase = bakeCurvature ? 0.5f : 1.0f;
+                                        var innerProgress = new Progress<(float p, string msg)>(t =>
+                                        {
+                                            float mapped = subStart + perSubMesh * (t.p * aoBase);
+                                            BakeStore.Dispatch(new UpdateProgressAction(
+                                                BakeStatus.Baking, mapped, $"{subLabel} [AO] {t.msg}"));
+                                        });
+
+                                        aoResult = await _aoBaker.ComputeAOAsync(
+                                            subContext, occlusionGeometry, state.AOSettings,
+                                            innerProgress, cancellationToken);
+
+                                        var processed = ApplyPostProcess(aoResult, outputSettings, outputResolution);
+                                        if (!ReferenceEquals(processed, aoResult))
+                                        {
+                                            aoResult.Release();
+                                            aoResult = processed;
+                                        }
+
+                                        Dispatch(BakeStatus.Baking, subStart + perSubMesh * (aoBase * 0.97f),
+                                            $"{subLabel} {L("Msg_SavingAO", go.name)}");
+                                        await Task.Yield();
+
+                                        string aoPath = WriteTexturePng(aoResult, texBaseName, "BakedAO",
+                                            outputFolder, outputSettings.OverwriteExisting);
+                                        savedAssets.Add((aoPath, outputResolution));
+                                        Debug.Log($"[AO Baker] {subLabel} '{go.name}' (マテリアル: {matName}): " +
+                                            $"AO テクスチャを保存しました → {aoPath}");
+                                        successCount++;
                                     }
 
-                                    Dispatch(BakeStatus.Baking, subStart + perSubMesh * (aoBase * 0.97f),
-                                        $"{subLabel} {L("Msg_SavingAO", go.name)}");
-                                    await Task.Yield();
-
-                                    string aoPath = WriteTexturePng(aoResult, texBaseName, "BakedAO",
-                                        outputFolder, outputSettings.OverwriteExisting);
-                                    savedAssets.Add((aoPath, outputResolution));
-                                    Debug.Log($"[AO Baker] {subLabel} '{go.name}' (マテリアル: {matName}): " +
-                                        $"AO テクスチャを保存しました → {aoPath}");
-                                    successCount++;
-                                }
-
-                                // ---- Curvature bake ----
-                                if (bakeCurvature)
-                                {
-                                    float curvStart2 = bakeAO ? 0.5f : 0.0f;
-                                    var curvProgress = new Progress<(float p, string msg)>(t =>
+                                    // ---- Curvature bake ----
+                                    if (bakeCurvature)
                                     {
-                                        float mapped = subStart + perSubMesh * (curvStart2 + t.p * (1.0f - curvStart2));
-                                        BakeStore.Dispatch(new UpdateProgressAction(
-                                            BakeStatus.Baking, mapped, $"{subLabel} [Curvature] {t.msg}"));
-                                    });
+                                        float curvStart2 = bakeAO ? 0.5f : 0.0f;
+                                        var curvProgress = new Progress<(float p, string msg)>(t =>
+                                        {
+                                            float mapped = subStart + perSubMesh * (curvStart2 + t.p * (1.0f - curvStart2));
+                                            BakeStore.Dispatch(new UpdateProgressAction(
+                                                BakeStatus.Baking, mapped, $"{subLabel} [Curvature] {t.msg}"));
+                                        });
 
-                                    curvatureResult = await _curvatureBaker.ComputeCurvatureAsync(
-                                        subContext, state.CurvatureSettings, curvProgress, cancellationToken);
+                                        curvatureResult = await _curvatureBaker.ComputeCurvatureAsync(
+                                            subContext, state.CurvatureSettings, curvProgress, cancellationToken);
 
-                                    Dispatch(BakeStatus.Baking, subStart + perSubMesh * 0.97f,
-                                        $"{subLabel} {L("Msg_SavingCurvature", go.name)}");
-                                    await Task.Yield();
+                                        Dispatch(BakeStatus.Baking, subStart + perSubMesh * 0.97f,
+                                            $"{subLabel} {L("Msg_SavingCurvature", go.name)}");
+                                        await Task.Yield();
 
-                                    string curvPath = WriteTexturePng(curvatureResult, texBaseName, "BakedCurvature",
-                                        outputFolder, outputSettings.OverwriteExisting);
-                                    savedAssets.Add((curvPath, outputResolution));
-                                    Debug.Log($"[AO Baker] {subLabel} '{go.name}' (マテリアル: {matName}): " +
-                                        $"Curvature テクスチャを保存しました → {curvPath}");
+                                        string curvPath = WriteTexturePng(curvatureResult, texBaseName, "BakedCurvature",
+                                            outputFolder, outputSettings.OverwriteExisting);
+                                        savedAssets.Add((curvPath, outputResolution));
+                                        Debug.Log($"[AO Baker] {subLabel} '{go.name}' (マテリアル: {matName}): " +
+                                            $"Curvature テクスチャを保存しました → {curvPath}");
+                                    }
                                 }
-                            }
-                            catch (OperationCanceledException)
-                            {
-                                throw;
-                            }
-                            catch (Exception subEx)
-                            {
-                                string msg = $"{subLabel} '{go.name}' (マテリアル: {matName}): {subEx.Message}";
-                                Debug.LogError($"[AO Baker] {msg}\n{subEx}");
-                                errorMessages.AppendLine(msg);
-                            }
-                            finally
-                            {
-                                subContext?.Dispose();
-                                aoResult?.Release();
-                                curvatureResult?.Release();
+                                catch (OperationCanceledException)
+                                {
+                                    throw;
+                                }
+                                catch (Exception subEx)
+                                {
+                                    string msg = $"{subLabel} '{go.name}' (マテリアル: {matName}): {subEx.Message}";
+                                    Debug.LogError($"[AO Baker] {msg}\n{subEx}");
+                                    errorMessages.AppendLine(msg);
+                                }
+                                finally
+                                {
+                                    subContext?.Dispose();
+                                    aoResult?.Release();
+                                    curvatureResult?.Release();
+                                }
                             }
                         }
-                    }
-                    catch (OperationCanceledException)
-                    {
-                        throw;
-                    }
-                    catch (Exception meshEx)
-                    {
-                        string msg = L("Msg_Skipped", go.name, meshEx.Message);
-                        Debug.LogError($"[AO Baker] {msg}\n{meshEx}");
-                        errorMessages.AppendLine(msg);
-                        BakeStore.Dispatch(new BakeErrorAction(msg));
-                    }
-                    finally
-                    {
-                        preparedMesh?.Dispose();
-                        occlusionGeometry?.Dispose();
-                        if (isBakedMesh && mesh != null)
-                            UnityEngine.Object.DestroyImmediate(mesh);
+                        catch (OperationCanceledException)
+                        {
+                            throw;
+                        }
+                        catch (Exception meshEx)
+                        {
+                            string msg = L("Msg_Skipped", go.name, meshEx.Message);
+                            Debug.LogError($"[AO Baker] {msg}\n{meshEx}");
+                            errorMessages.AppendLine(msg);
+                            BakeStore.Dispatch(new BakeErrorAction(msg));
+                        }
+                        finally
+                        {
+                            preparedMesh?.Dispose();
+                            occlusionGeometry?.Dispose();
+                            if (isBakedMesh && mesh != null)
+                                UnityEngine.Object.DestroyImmediate(mesh);
+                        }
                     }
                 }
 
@@ -305,6 +316,170 @@ namespace DennokoWorks.Tool.AOBaker
             {
                 // Always clean up baked occluder meshes (fixes memory leak on SkinnedMeshRenderer occluders)
                 foreach (var bakedMesh in bakedOccluderMeshes)
+                {
+                    if (bakedMesh != null)
+                        UnityEngine.Object.DestroyImmediate(bakedMesh);
+                }
+            }
+        }
+
+        private async Task<(int successCount, string outputFolder)> ExecuteCombinedBakeAsync(
+            BakeState state,
+            List<(Mesh mesh, Transform transform)> occluders,
+            OutputSettings outputSettings,
+            int outputResolution,
+            bool bakeAO,
+            bool bakeCurvature,
+            List<(string assetPath, int resolution)> savedAssets,
+            System.Text.StringBuilder errorMessages,
+            CancellationToken cancellationToken)
+        {
+            var targetPairs       = new List<(Mesh mesh, Transform transform)>();
+            var bakedTargetMeshes = new List<Mesh>();
+            GameObject firstGo    = null;
+            Material   firstMat   = null;
+
+            OcclusionGeometry occlusionGeometry = null;
+            BakeContext       combinedContext   = null;
+            Mesh              combinedMesh      = null;
+            RenderTexture     aoResult          = null;
+            RenderTexture     curvatureResult   = null;
+
+            try
+            {
+                for (int i = 0; i < state.TargetMeshes.Count; i++)
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+
+                    var go = state.TargetMeshes[i];
+                    if (go == null) continue;
+
+                    Dispatch(BakeStatus.Baking, 0.02f, L("Msg_Preparing", go.name));
+
+                    var mesh = ExtractMesh(go, out Transform meshTransform, out Renderer renderer, out bool isBakedMesh);
+                    if (mesh == null)
+                    {
+                        string msg = L("Msg_NoMeshFound", go.name);
+                        Debug.LogError($"[AO Baker] {msg}");
+                        errorMessages.AppendLine(msg);
+                        continue;
+                    }
+
+                    if (isBakedMesh) bakedTargetMeshes.Add(mesh);
+                    targetPairs.Add((mesh, meshTransform));
+
+                    if (firstGo == null)
+                    {
+                        firstGo = go;
+                        if (renderer != null && renderer.sharedMaterials != null && renderer.sharedMaterials.Length > 0)
+                            firstMat = renderer.sharedMaterials[0];
+                    }
+                }
+
+                if (targetPairs.Count == 0)
+                    return (0, null);
+
+                string outputFolder = ResolveMaterialOutputFolder(firstMat, outputSettings.OutputFolder);
+                EnsureOutputFolder(outputFolder);
+
+                string texBaseName = targetPairs.Count > 1
+                    ? $"{firstGo.name}_Combined"
+                    : firstGo.name;
+
+                Debug.Log($"[AO Baker] 結合ベイク: {targetPairs.Count} 個のメッシュを1枚のテクスチャに統合 " +
+                    $"→ {texBaseName} ({outputResolution}px, 上書き保存: {outputSettings.OverwriteExisting})");
+
+                Dispatch(BakeStatus.Baking, 0.05f, L("Msg_BuildingBVH"));
+                await Task.Yield();
+
+                occlusionGeometry = await _occlusionBuilder.BuildAsync(
+                    targetPairs, occluders,
+                    state.AOSettings.UseSelfOcclusion,
+                    state.AOSettings.UseMutualOcclusion,
+                    cancellationToken);
+
+                combinedContext = _meshFormat.BuildCombinedContext(
+                    targetPairs, outputResolution, outputSettings.UVChannel, out combinedMesh);
+
+                int successCount = 0;
+
+                // ---- AO bake ----
+                if (bakeAO)
+                {
+                    float aoBase = bakeCurvature ? 0.5f : 1.0f;
+                    var innerProgress = new Progress<(float p, string msg)>(t =>
+                    {
+                        BakeStore.Dispatch(new UpdateProgressAction(
+                            BakeStatus.Baking, t.p * aoBase, $"[AO] {t.msg}"));
+                    });
+
+                    aoResult = await _aoBaker.ComputeAOAsync(
+                        combinedContext, occlusionGeometry, state.AOSettings,
+                        innerProgress, cancellationToken);
+
+                    var processed = ApplyPostProcess(aoResult, outputSettings, outputResolution);
+                    if (!ReferenceEquals(processed, aoResult))
+                    {
+                        aoResult.Release();
+                        aoResult = processed;
+                    }
+
+                    Dispatch(BakeStatus.Baking, aoBase * 0.97f, L("Msg_SavingAO", texBaseName));
+                    await Task.Yield();
+
+                    string aoPath = WriteTexturePng(aoResult, texBaseName, "BakedAO",
+                        outputFolder, outputSettings.OverwriteExisting);
+                    savedAssets.Add((aoPath, outputResolution));
+                    Debug.Log($"[AO Baker] 結合 AO テクスチャを保存しました → {aoPath}");
+                    successCount++;
+                }
+
+                // ---- Curvature bake ----
+                if (bakeCurvature)
+                {
+                    float curvStart = bakeAO ? 0.5f : 0.0f;
+                    var curvProgress = new Progress<(float p, string msg)>(t =>
+                    {
+                        float mapped = curvStart + t.p * (1.0f - curvStart);
+                        BakeStore.Dispatch(new UpdateProgressAction(
+                            BakeStatus.Baking, mapped, $"[Curvature] {t.msg}"));
+                    });
+
+                    curvatureResult = await _curvatureBaker.ComputeCurvatureAsync(
+                        combinedContext, state.CurvatureSettings, curvProgress, cancellationToken);
+
+                    Dispatch(BakeStatus.Baking, 0.97f, L("Msg_SavingCurvature", texBaseName));
+                    await Task.Yield();
+
+                    string curvPath = WriteTexturePng(curvatureResult, texBaseName, "BakedCurvature",
+                        outputFolder, outputSettings.OverwriteExisting);
+                    savedAssets.Add((curvPath, outputResolution));
+                    Debug.Log($"[AO Baker] 結合 Curvature テクスチャを保存しました → {curvPath}");
+                }
+
+                return (successCount, outputFolder);
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                string msg = $"Combined bake failed: {ex.Message}";
+                Debug.LogError($"[AO Baker] {msg}\n{ex}");
+                errorMessages.AppendLine(msg);
+                BakeStore.Dispatch(new BakeErrorAction(msg));
+                return (0, null);
+            }
+            finally
+            {
+                combinedContext?.Dispose();
+                occlusionGeometry?.Dispose();
+                aoResult?.Release();
+                curvatureResult?.Release();
+                if (combinedMesh != null)
+                    UnityEngine.Object.DestroyImmediate(combinedMesh);
+                foreach (var bakedMesh in bakedTargetMeshes)
                 {
                     if (bakedMesh != null)
                         UnityEngine.Object.DestroyImmediate(bakedMesh);

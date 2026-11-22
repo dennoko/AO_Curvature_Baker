@@ -169,6 +169,141 @@ namespace DennokoWorks.Tool.AOBaker
                 ownsVertexBuffers:     false);
         }
 
+        /// <summary>
+        /// Combines multiple target meshes in world space into a single BakeContext so they can be
+        /// rasterized and baked onto one shared texture. Per-mesh negative-scale winding is normalized
+        /// in the combined index buffer so WindingSign is always +1.
+        /// Caller is responsible for destroying <paramref name="combinedMesh"/> when done.
+        /// </summary>
+        public BakeContext BuildCombinedContext(
+            IReadOnlyList<(Mesh mesh, Transform transform)> targets,
+            int textureResolution,
+            int uvChannel,
+            out Mesh combinedMesh)
+        {
+            combinedMesh = null;
+            if (targets == null || targets.Count == 0)
+                throw new ArgumentException("At least one target mesh is required.", nameof(targets));
+
+            var allVerts   = new List<Vector3>();
+            var allNormals = new List<Vector3>();
+            var allUVs     = new List<Vector2>();
+            var allIndices = new List<int>();
+
+            for (int m = 0; m < targets.Count; m++)
+            {
+                var (mesh, meshTransform) = targets[m];
+                if (mesh == null) continue;
+                if (!mesh.isReadable)
+                    throw new InvalidOperationException(L("Error_NotReadable", mesh.name));
+
+                Vector3[] localVerts = mesh.vertices;
+                if (localVerts == null || localVerts.Length == 0)
+                    continue;
+
+                Vector2[] uvs = FindValidUVChannel(mesh, localVerts.Length, uvChannel);
+                if (uvs == null)
+                    throw new InvalidOperationException(L("Error_NoUVChannel", mesh.name));
+
+                Matrix4x4 localToWorld = meshTransform != null ? meshTransform.localToWorldMatrix : Matrix4x4.identity;
+                float det              = localToWorld.determinant;
+                bool  flipWinding      = det < 0f;
+                bool  isIdentity       = localToWorld == Matrix4x4.identity;
+                Matrix4x4 normalMatrix = Mathf.Abs(det) > 1e-12f
+                    ? localToWorld.inverse.transpose
+                    : Matrix4x4.identity;
+
+                int vertexOffset = allVerts.Count;
+
+                // World-space vertices
+                if (isIdentity)
+                {
+                    allVerts.AddRange(localVerts);
+                }
+                else
+                {
+                    allVerts.Capacity = Math.Max(allVerts.Capacity, allVerts.Count + localVerts.Length);
+                    for (int i = 0; i < localVerts.Length; i++)
+                        allVerts.Add(localToWorld.MultiplyPoint3x4(localVerts[i]));
+                }
+
+                // World-space normals
+                Vector3[] localNormals = mesh.normals;
+                if (localNormals == null || localNormals.Length != localVerts.Length)
+                    localNormals = ComputeFallbackNormals(mesh, localVerts);
+
+                allNormals.Capacity = Math.Max(allNormals.Capacity, allNormals.Count + localNormals.Length);
+                for (int i = 0; i < localNormals.Length; i++)
+                {
+                    Vector3 n = isIdentity ? localNormals[i] : normalMatrix.MultiplyVector(localNormals[i]);
+                    float mag = n.magnitude;
+                    allNormals.Add(mag > 1e-8f ? (n / mag) : Vector3.up);
+                }
+
+                // UVs
+                allUVs.AddRange(uvs);
+
+                // Triangle indices (matching OcclusionGeometryBuilder submesh ordering and winding)
+                for (int sub = 0; sub < mesh.subMeshCount; sub++)
+                {
+                    if (mesh.GetTopology(sub) != MeshTopology.Triangles)
+                        continue;
+
+                    int[] subIdx = mesh.GetTriangles(sub);
+                    allIndices.Capacity = Math.Max(allIndices.Capacity, allIndices.Count + subIdx.Length);
+                    for (int t = 0; t < subIdx.Length; t += 3)
+                    {
+                        int i0 = vertexOffset + subIdx[t];
+                        int i1 = vertexOffset + (flipWinding ? subIdx[t + 2] : subIdx[t + 1]);
+                        int i2 = vertexOffset + (flipWinding ? subIdx[t + 1] : subIdx[t + 2]);
+                        allIndices.Add(i0);
+                        allIndices.Add(i1);
+                        allIndices.Add(i2);
+                    }
+                }
+            }
+
+            if (allVerts.Count == 0 || allIndices.Count == 0)
+                throw new InvalidOperationException("Combined target meshes have no triangles to bake.");
+
+            string combinedName = targets[0].mesh != null ? targets[0].mesh.name + "_Combined" : "Combined";
+            combinedMesh = new Mesh
+            {
+                name        = combinedName,
+                indexFormat = allVerts.Count > 65535
+                    ? UnityEngine.Rendering.IndexFormat.UInt32
+                    : UnityEngine.Rendering.IndexFormat.UInt16
+            };
+            combinedMesh.SetVertices(allVerts);
+            combinedMesh.SetNormals(allNormals);
+            combinedMesh.SetTriangles(allIndices, 0, calculateBounds: false);
+
+            var vertexBuffer = new ComputeBuffer(allVerts.Count, 3 * sizeof(float));
+            vertexBuffer.SetData(allVerts);
+
+            var normalBuffer = new ComputeBuffer(allNormals.Count, 3 * sizeof(float));
+            normalBuffer.SetData(allNormals);
+
+            var uvBuffer = new ComputeBuffer(allUVs.Count, 2 * sizeof(float));
+            uvBuffer.SetData(allUVs);
+
+            var indexBuffer = new ComputeBuffer(allIndices.Count, sizeof(int));
+            indexBuffer.SetData(allIndices);
+
+            return new BakeContext(
+                combinedMesh,
+                textureResolution,
+                allIndices.Count / 3,
+                vertexBuffer,
+                normalBuffer,
+                uvBuffer,
+                indexBuffer,
+                subMeshTriangleOffset: 0,
+                windingSign:           1f,
+                worldNormalMatrix:     Matrix4x4.identity,
+                ownsVertexBuffers:     true);
+        }
+
         // Backward-compatible single-call helpers
         public BakeContext BuildContext(Mesh mesh, Transform targetTransform, int textureResolution, int uvChannel = -1)
         {

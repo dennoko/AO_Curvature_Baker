@@ -23,6 +23,8 @@ namespace DennokoWorks.Tool.AOBaker
         public int    GaussianBlurPasses  { get; }
         /// <summary>UV channel used for baking (0–7). -1 = auto (first valid channel).</summary>
         public int    UVChannel           { get; }
+        /// <summary>If true, combine all target meshes into a single baked texture.</summary>
+        public bool   CombineTargetMeshes { get; }
 
         public OutputSettings(
             int    outputResolution    = 2048,
@@ -32,7 +34,8 @@ namespace DennokoWorks.Tool.AOBaker
             Color? shadowColor         = null,
             bool   gaussianBlurEnabled = true,
             int    gaussianBlurPasses  = 2,
-            int    uvChannel           = -1)
+            int    uvChannel           = -1,
+            bool   combineTargetMeshes = false)
         {
             OutputResolution    = outputResolution;
             OutputFolder        = outputFolder ?? "";
@@ -42,6 +45,7 @@ namespace DennokoWorks.Tool.AOBaker
             GaussianBlurEnabled = gaussianBlurEnabled;
             GaussianBlurPasses  = Mathf.Clamp(gaussianBlurPasses, 1, 10);
             UVChannel           = (uvChannel < -1 || uvChannel > 7) ? -1 : uvChannel;
+            CombineTargetMeshes = combineTargetMeshes;
         }
 
         public OutputSettings With(
@@ -52,7 +56,8 @@ namespace DennokoWorks.Tool.AOBaker
             Color?  shadowColor         = null,
             bool?   gaussianBlurEnabled = null,
             int?    gaussianBlurPasses  = null,
-            int?    uvChannel           = null)
+            int?    uvChannel           = null,
+            bool?   combineTargetMeshes = null)
         {
             return new OutputSettings(
                 outputResolution    ?? OutputResolution,
@@ -62,7 +67,8 @@ namespace DennokoWorks.Tool.AOBaker
                 shadowColor         ?? ShadowColor,
                 gaussianBlurEnabled ?? GaussianBlurEnabled,
                 gaussianBlurPasses  ?? GaussianBlurPasses,
-                uvChannel           ?? UVChannel);
+                uvChannel           ?? UVChannel,
+                combineTargetMeshes ?? CombineTargetMeshes);
         }
     }
 

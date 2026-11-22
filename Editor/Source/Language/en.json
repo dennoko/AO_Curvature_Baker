@@ -61,6 +61,8 @@
   "Tooltip_OutputFolder": "Where to save the result. If left empty, it will be saved next to the original model.",
   "Label_Overwrite": "Overwrite Existing",
   "Tooltip_Overwrite": "If disabled, a new numbered file will be created instead of replacing the old one.",
+  "Label_CombineTargets": "Combine into Single Texture",
+  "Tooltip_CombineTargets": "Bakes all target meshes (and submeshes) into a single texture. Use this when their UVs share a non-overlapping layout.",
   "Label_PostProcess": "FINISHING TOUCHES",
   "Label_Dilation": "Edge Filling",
   "Tooltip_Dilation": "Expands the texture slightly to fill in small gaps. Helps prevent unwanted lines appearing on the model.",
